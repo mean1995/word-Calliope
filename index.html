@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Word Καλλιόπη</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- §43 Paper + Primary Controls · §44 nine controls · §45 English text, no icons
+     1.1.1: the top bar is a pure controls area again; the mark moved to the machine body. -->
+<nav class="bar" id="bar" aria-label="Primary controls">
+  <div class="bar-controls">
+  <button type="button" id="btn-new">NEW</button>
+  <button type="button" id="btn-open">OPEN</button>
+  <button type="button" id="btn-save">SAVE</button>
+  <button type="button" id="btn-pdf">EXPORT PDF</button>
+  <button type="button" id="btn-zoom">ZOOM FIT</button>
+  <button type="button" id="btn-return">AUTO RETURN ON</button>
+  <button type="button" id="btn-sound">SOUND ON</button>
+  <button type="button" id="btn-paper">PAPER WHITE</button>
+  <button type="button" id="btn-ribbon">RIBBON BLACK</button>
+  </div>
+</nav>
+
+<!-- §07 one sheet at a time; §12/§13 the sheet is a window over one continuous text -->
+<div class="stage" id="stage">
+  <div class="stage-inner" id="stage-inner">
+    <!-- 1.1.1 machine stage: the machine-body badge (application chrome, decorative,
+         non-interactive) and the two rail marks that flank the visual line the caret is on.
+         All of it stays out of the paper DOM, the TXT, Recovery, Print and PDF (print hides
+         .stage). The rail marks are positioned by read-only caret geometry in app.js and are
+         hidden whenever that visual line holds no character. -->
+    <div class="machine-slot" aria-hidden="true">
+      <img class="machine-logo" src="logo.svg" alt="">
+    </div>
+    <div class="paper" id="paper">
+      <div class="sheet-window" id="sheet-window"><!-- editor built by app.js --></div>
+    </div>
+    <div class="rail-mark rail-mark-left" id="rail-left" aria-hidden="true"></div>
+    <div class="rail-mark rail-mark-right" id="rail-right" aria-hidden="true"></div>
+    <!-- typewriter rail (2026-10-06): the carriage line under the caret's row and the line two
+         rows above it, as one integrated unit - left and right segments on both rows, with the
+         two graduations only on the caret's own row. The upper row may fall inside the paper's
+         top margin; that is intended. Driven read-only by app.js updateTypeLine(). -->
+    <div class="type-line" id="type-line" aria-hidden="true">
+      <i class="type-tick type-tick-long" id="type-tick-long"></i>
+      <i class="type-tick type-tick-short" id="type-tick-short"></i>
+    </div>
+    <div class="type-line" id="type-line-up2" aria-hidden="true"></div>
+    <div class="type-line type-line-right" id="type-line-right" aria-hidden="true"></div>
+    <div class="type-line type-line-right" id="type-line-right-up2" aria-hidden="true"></div>
+    <!-- hides the native blinking caret: paper-coloured, above the paper but below the rail -->
+    <div class="caret-mask" id="caret-mask" aria-hidden="true"></div>
+    <!-- colophon centred in the paper's bottom margin; screen-only, print hides .stage.
+         Romanised on purpose: the CJK slot's Greek capitals are drawn ~16% shorter than its
+         Latin capitals and float above the baseline (measured 2026-10-06), which read as an
+         uneven line. The CJK slot is kept for its dot-matrix character. -->
+    <div class="paper-mark" id="paper-mark" aria-hidden="true">WORD KALLIOPE BY VIC</div>
+  </div>
+</div>
+
+<!-- §14 print-only DOM, always kept out of the screen tree -->
+<div id="print-root"></div>
+
+<!-- §28 native file flow only, no custom file manager -->
+<input type="file" id="file-input" accept=".txt,text/plain" hidden>
+
+<script src="app.js"></script>
+</body>
+</html>

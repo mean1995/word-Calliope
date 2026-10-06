@@ -1,0 +1,463 @@
+/* ==========================================================================
+   Word Καλλιόπη — style.css
+   Baseline: Development Draft-1.3.  § numbers below refer to that document.
+   Screen = one sheet.  Print = separate print-only DOM (§14), never the textarea.
+   ========================================================================== */
+
+/* --- Dual Font System (§05): fixed slots, fixed stack order, no proportional fallback --- */
+@font-face{
+  font-family:"KalliopeLatin";
+  src:url("assets/fonts/font-latin.woff2") format("woff2");
+  font-weight:400; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"KalliopeCJK";
+  src:url("assets/fonts/font-cjk.woff2") format("woff2");
+  font-weight:400; font-style:normal; font-display:swap;
+}
+/* Primary-Control face (1.1.1): Doto instantiated at ROND 100 / wght 400, subset to the 39 code
+   points the nine controls can display, renamed KalliopeButton (SIL OFL 1.1 - the full notice
+   ships as assets/fonts/LICENSE-DOTO.txt). It is deliberately NOT part of --font-stack: the
+   document slots, the paper and the print sheets keep KalliopeLatin / KalliopeCJK, and a
+   failure to load this decorative face must never reach the data-grid capability guard.
+   font-display:block avoids a label-width jump; the local file resolves immediately. */
+@font-face{
+  font-family:"KalliopeButton";
+  src:url("assets/fonts/font-button.woff2") format("woff2");
+  font-weight:400; font-style:normal; font-display:block;
+}
+
+:root{
+  /* §08 paper colours — #FFFFFF is forbidden.
+     2026-10-06 product-side ruling (Notes §13): WHITE moved from a warm cream to a neutral
+     near-white (#F4F1E6 -> #F8F8F6, b* 5.7 -> 1.0) and CANARY lost most of its yellow
+     (#F7EBAE -> #F5EDC5, b* 31.1 -> 20.4, -35%) so the sheet reads as paper, not as a sticky
+     note. The pair still separates by ΔE76 20.1, so PAPER keeps a visible effect.
+     These two values are MIRRORED in app.js PAPER_COLORS, which is what actually paints the
+     screen and the print sheets - the two files must always be changed together. */
+  --paper-white:#F8F8F6;
+  --paper-canary:#F5EDC5;
+  /* §09 ribbon colours — #000000 is forbidden */
+  --ribbon-black:#262522;
+  --ribbon-blue-black:#085BB4;   /* §09 LOCKED by PM decision: ladder R10 (was #1F3348, originally #232D39) */
+
+  --paper-color:var(--paper-white);
+  --ribbon-color:var(--ribbon-black);
+
+  /* §07 / §10 fixed physical geometry */
+  --sheet-w:8.5in;
+  --sheet-h:11in;
+  --margin:1in;
+  --text-w:6.5in;         /* 6.5in x 12 CPI = 78 units */
+  --text-h:9in;           /* 9in   x  6 LPI = 54 lines  */
+  --row:16px;             /* 1/6 in = 6 LPI baseline pitch */
+
+  /* §10.1 vertical glyph clearance.
+     IBM Plex Mono v2.3 hhea ascent/descent = 1025/-275 -> content box 20.8px @16px,
+     half-leading -2.40px -> first baseline 14.00px, so 2.00px of the row lies below
+     the baseline while the deepest ink ('g') reaches 3.39px below it.
+     1.39px is therefore the ink that crosses the logical 9in text area.
+     The 16px logical row is NOT a clipping box (1.3 §10.1), so the sheet window is
+     extended by exactly this much at the bottom. No glyph geometry is altered. */
+  --descender-ink:1.39px;
+
+  --font-stack:"KalliopeLatin","KalliopeCJK",ui-monospace,monospace;
+
+  /* build marker, readable from the console as getComputedStyle(document.documentElement)
+     .getPropertyValue("--build") so a stale cached stylesheet can be told apart from a bug */
+  --build:1.1.1;
+}
+
+*{box-sizing:border-box}
+
+html,body{
+  margin:0;
+  padding:0;
+  height:100%;
+  /* §37 never let Safari text autosizing change 12 CPI / 6 LPI */
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+  background:#8d8a80;
+  color:#26251f;
+  font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;
+}
+
+/* ------------------------------------------------------------------ control bar
+   §43 Paper + Primary Controls · §44 nine controls · §45 English text, no icons   */
+/* §43 the paper is the visual subject, the controls step back.
+   1.1.1: the top bar is a pure controls area again - the mark moved to the machine body, so the
+   1.1 three-region grid (brand | controls | balance), its derived breakpoint and both logo
+   rules are gone. A single full-width track keeps the Primary Controls centred on the browser
+   viewport itself (measured offset 0.0), with no JavaScript positioning involved. */
+.bar{
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  background:#1e1d1a;
+  border-bottom:1px solid #000;
+}
+.bar-controls{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:center;
+  gap:6px;
+}
+/* 1.1.1: the face is KalliopeButton (Doto instantiated at ROND 100 / wght 400, subset to the
+   39 code points the nine controls can display). The box model is deliberately untouched:
+   line-height stays 12px, so the content box is still 12px, the button keeps its 28px outer
+   height (12 + 2x7 padding + 2x1 border) and the bar its 44px + 1px border. Only the face and
+   the type size are calibrated inside that locked box. The fallback keeps the labels readable
+   and the toolbar on one line if the decorative face ever fails to load. */
+.bar button{
+  font:13.5px/12px "KalliopeButton",ui-monospace,monospace;
+  letter-spacing:.02em;
+  padding:7px 10px;
+  color:#e8e4d8;
+  background:#302e29;
+  border:1px solid #4a473f;
+  border-radius:3px;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.bar button:hover{background:#3c3933}
+.bar button:active{background:#26241f}
+.bar button:focus-visible{outline:2px solid #8a8578; outline-offset:1px}
+
+/* The two state buttons carry a live colour stripe so the armed PAPER / RIBBON is visible at a
+   glance. Why (2026-10-06, product-side report): pressing RIBBON changes nothing on the paper -
+   only what is typed NEXT takes the new ink (§48) - so a second press silently cancelled the
+   first and the paper stayed single-coloured with no visible trace. The stripe is an INSET
+   box-shadow: the button box and its padding are untouched, so the 1.1.1 type calibration
+   (13.5px inside the same 28px button) does not interact with it.
+   The RIBBON button gets a light slot behind its stripe, otherwise the BLACK ink state would be
+   invisible against the dark button - the two states must be equally readable. */
+#btn-ribbon{
+  box-shadow:inset 4px 0 0 0 var(--ribbon-color);
+  background-image:linear-gradient(90deg,#7d7869 0 6px,transparent 6px);
+}
+#btn-paper{box-shadow:inset 4px 0 0 0 var(--paper-color)}
+
+/* ------------------------------------------------------------------ stage / zoom
+   §34 Zoom changes screen rendering only · §35 print CSS is independent of it     */
+.stage{
+  padding:18px;
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  /* 1.1.1: the stage is the container the machine badge measures its slot against */
+  container-type:inline-size;
+}
+/* #stage-inner is the machine stage's anchor: applyZoom() sets its inline width/height to the
+   paper's scaled size, so the rail and the badge placed inside it follow document ZOOM with no
+   JavaScript. flex:0 0 auto stops the flex item from shrinking below that size - without it the
+   box is squeezed to the stage's content width at ZOOM 150% on a narrow viewport, and a rail
+   anchored to a squeezed box drifts off the paper's centre (measured: rail centre 30px left of
+   the paper centre). It is a no-op whenever the paper fits. */
+.stage-inner{position:relative; flex:0 0 auto}
+
+/* ------------------------------------------------------------------ machine stage (1.1.1)
+   Application chrome around the paper: the machine-body badge and the two rail marks that
+   flank the visual line the caret is on. All of it stays out of the paper DOM, the TXT,
+   Recovery, Print and PDF - @media print hides the whole .stage. Decorative only: no state,
+   no input handling, no animation.
+   Badge geometry unchanged (PM ruling §4): 28px high, right edge 80px left of the paper's
+   left edge, top edge = paper visual top + 260px. */
+.paper{z-index:1}
+
+/* The badge has exactly two states: visible at its intended size, or hidden (PM ruling §4).
+   Visible only while the paper's left-side slot can hold
+     rendered logo width 85.3281px + 80px paper clearance + 24px outer breathing room = 189.33px
+   measured from the viewport's left edge to the paper's visual left edge.
+   .machine-slot expresses that slot as a container so the condition follows the real layout:
+   it spans viewport-left-edge -> paper-left-edge and is 0px tall, so it cannot affect layout
+   (50cqw = half of .stage's content box, 50% = half of the paper's visual width, +18px is the
+   stage's own left padding). Progressive enhancement, as ruled: without container query support
+   the rule below never applies and the badge simply stays hidden. */
+.machine-slot{
+  position:absolute;
+  right:100%;
+  top:0;
+  height:0;
+  width:calc(50cqw - 50% + 18px);
+  container-type:inline-size;
+}
+.machine-logo{
+  position:absolute;
+  right:80px;                     /* logo right edge 80px left of the paper's left edge */
+  top:260px;                      /* paper visual top + 260px */
+  height:28px;                    /* fixed rendered height; width:auto keeps the aspect ratio */
+  width:auto;
+  display:none;                   /* the approved default state: hidden */
+  pointer-events:none;
+}
+@container (min-width:189.33px){
+  .machine-logo{display:block}
+}
+
+/* ------------------------------------------------------------------ rail marks (1.1.1)
+   Two black triangles marking the visual line the caret is on:
+     left  triangle: points right, its right tip 8 character cells left of the first cell
+     right triangle: points left,  its left tip 6 character cells right of the last cell
+   Both are 4x8 CSS px - half of the 8x16px Latin document cell - and are vertically centred
+   on that line. Both gaps are document measurements (left 8 x 8px, right 6 x 8px), so they
+   scale with the text and always read as that many characters; only the 4x8px mark size is a
+   screen-space measurement that never scales with document ZOOM. Only the positions follow the
+   paper (app.js updateRailMarks()).
+   Pure #000000, flat, no line, no plate, no shadow, no gradient, no border, no animation,
+   and deliberately independent of PAPER / RIBBON. On an empty visual line only the leading
+   mark is shown (the caret is still on that line, but there is no last character cell for a
+   trailing mark); both marks are hidden only when there is no line to mark at all. */
+.rail-mark{
+  position:absolute;
+  width:4px;
+  height:8px;
+  background:#000000;
+  z-index:2;                      /* above the paper: the marks sit in its margins */
+  display:none;
+  pointer-events:none;
+}
+.rail-mark-left{clip-path:polygon(0 0, 100% 50%, 0 100%)}
+.rail-mark-right{clip-path:polygon(100% 0, 0 50%, 100% 100%)}
+
+/* ------------------------------------------------------------------ typewriter position line (1.1.1)
+   The typewriter's carriage rail: a red underline ending at the caret, always six character
+   cells long, plus a second segment starting 1 cell to the right of the caret and 3 cells
+   long. Both lengths are fixed, so near the start of a row the left part runs on into the
+   paper's left margin and near the end of a row the right part runs on into the right margin
+   instead of shortening. Both track the caret on every edit, caret move, sheet change and
+   document ZOOM, and both are hidden only while there is no insertion point. Width, height and position are document measurements (they scale with the
+   paper like the text); the colour is fixed red and deliberately does not follow RIBBON or
+   PAPER. Presentation only: chrome outside the paper DOM, no state, nothing written back,
+   and it is excluded from TXT, Recovery, SAVE, Print and PDF with the rest of the stage. */
+.type-line{
+  position:absolute;
+  height:2px;
+  background:#cc0000;
+  z-index:2;
+  display:none;
+  pointer-events:none;
+}
+/* the two graduations stand on the rail and rise into the character cell: one full character
+   height at two character widths left of the caret, one half height at four widths left.
+   Their stroke width, heights and offsets are document measurements, so they scale with the
+   paper like the rail itself (app.js updateTypeLine()). */
+.type-tick{
+  position:absolute;
+  bottom:100%;              /* bottom edge on the rail's top edge */
+  width:2px;
+  background:#cc0000;
+}
+.type-tick-long{height:16px}
+.type-tick-short{height:8px}
+
+
+/* The rail is the caret's row plus the two rows above it, drawn as one unit. */
+.caret-mask{
+  position:absolute;
+  width:2px;
+  height:16px;
+  background:var(--paper-color);   /* paper-coloured, so it is invisible on the sheet */
+  z-index:1;                       /* above .paper (same z-index, later in DOM), below the rail */
+  display:none;
+  pointer-events:none;
+}
+
+/* ------------------------------------------------------------------ paper colophon (1.1.1)
+   "WORD KALLIOPE BY VIC" centred in the paper's bottom margin, at 80% of the document type
+   size and in fixed black. The whole line uses the CJK slot (PM 2026-10-06) for its dot-matrix
+   character; the product name is romanised because that slot's Greek capitals are drawn about
+   16% shorter than its Latin capitals and sit above the baseline, which reads as an uneven
+   line. KalliopeCJK covers every character in the line. Sizes and position are document measurements, so they
+   scale with the paper. It is screen-only chrome: it lives inside .stage, which @media print
+   hides, so it never reaches Print, EXPORT PDF, the TXT or Recovery. */
+.paper-mark{
+  position:absolute;
+  left:50%;
+  margin:0;
+  transform:translate(-50%, -50%);   /* the point set by app.js is the mark's centre */
+  font-family:"KalliopeCJK",ui-monospace,monospace;
+  font-size:12.8px;
+  line-height:1;
+  letter-spacing:.02em;
+  color:#000000;
+  -webkit-text-fill-color:#000000;
+  white-space:nowrap;
+  z-index:2;
+  display:none;
+  pointer-events:none;
+}
+
+/* ------------------------------------------------------------------ the paper
+   §07 US Letter, 1in margins, 6.5 x 9in text area · §14 same box for print sheets */
+.paper{
+  width:var(--sheet-w);
+  height:var(--sheet-h);
+  padding:var(--margin);
+  background:var(--paper-color);
+  color:var(--ribbon-color);
+  /* WebKit paints glyphs through -webkit-text-fill-color; keeping it at currentColor
+     ties the painted ink to the ribbon on every engine, not just on Blink/Gecko. */
+  -webkit-text-fill-color:currentColor;
+  overflow:hidden;          /* fallback */
+  overflow:clip;            /* not a scroll container: the browser cannot scroll it */
+  position:relative;
+  transform-origin:top left;
+  box-shadow:0 6px 22px rgba(0,0,0,.35);
+}
+/* Zoom is applied with transform so that document geometry is untouched (§34) */
+.paper.is-scaled{box-shadow:0 6px 22px rgba(0,0,0,.35)}
+
+/* ------------------------------------------------------------------ sheet window
+   The 9in writing area, extended downward by the glyph ink that the font paints
+   below the last baseline (1.3 §10.1). The window — not the 6.5 x 9in box — is the
+   clip boundary, so no ink of the current sheet is ever cut.                     */
+.sheet-window{
+  position:relative;
+  width:var(--text-w);
+  height:calc(var(--text-h) + var(--descender-ink));
+  overflow:hidden;          /* fallback */
+  overflow:clip;
+}
+
+/* ------------------------------------------------------------------ editable flow
+   One continuous editing context for the whole document (§12). The sheet is a
+   window over it (§13); the value is never rewritten for layout reasons (§21).
+   Line breaking is exactly the unit grid: every glyph advance is 8px (Latin, 1 unit)
+   or 16px (CJK, 2 units), the column is 624px = 78 units, so the browser's soft wrap
+   IS the 78-unit AUTO RETURN (§16). line-break:anywhere keeps CJK punctuation from
+   forcing an early break; word-break:break-all forbids English whole-word wrapping. */
+/* The editing surface stays a plain <textarea>: it remains the single source of truth
+   for the semantic text, the caret offset, IME, undo, paste and the 78-unit guard.
+   Its glyphs are painted by a mirror layer underneath, so that the ribbon can change
+   colour for the characters typed after the switch without turning the document into
+   styled markup. The two layers must therefore be typographically identical - hence
+   the shared rule below; they differ only in colour and pointer behaviour (§48). */
+.editor,
+.editor-ink{
+  font-family:var(--font-stack);
+  font-size:calc(1in / 6);          /* §10 16px */
+  line-height:var(--row);           /* §10 16px baseline pitch */
+  font-weight:400;
+  font-kerning:none;
+  font-variant-ligatures:none;
+  font-feature-settings:"liga" 0,"clig" 0;
+  letter-spacing:normal;            /* trap: never compensate advance */
+  text-align:left;
+  white-space:pre-wrap;
+  word-break:break-all;
+  line-break:anywhere;
+  overflow-wrap:break-word;
+  tab-size:1;                       /* a pasted TAB renders as exactly one cell */
+  -webkit-text-size-adjust:100%;
+  box-sizing:border-box;
+}
+
+/* translating container: both layers move together between sheets (§13) */
+.editor-flow{
+  position:absolute;
+  left:0;
+  top:0;
+  width:var(--text-w);
+}
+
+.editor{
+  position:absolute;
+  left:0;
+  top:0;
+  width:var(--text-w);
+  min-height:var(--text-h);
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:0;
+  outline:none;
+  resize:none;
+  background:transparent;
+  /* glyphs are invisible here: .editor-ink paints them. The caret and the selection
+     highlight are still drawn by this control, which keeps native behaviour intact. */
+  color:transparent;
+  -webkit-text-fill-color:transparent;
+  /* 1.1.1: the native blinking caret is switched off (PM 2026-10-06). caret-color is the
+     standard way; because it proved unreliable on real Safari, .caret-mask covers the caret
+     as well - see the rail section. Presentation only. */
+  caret-color:transparent;
+  overflow:hidden;
+  display:block;
+  -webkit-appearance:none;
+  appearance:none;
+  z-index:1;
+}
+/* selection tint stays neutral so it reads the same on either paper / ribbon */
+.editor::selection{background:rgba(38,37,34,.22)}
+
+/* mirror layer: same box and typography, glyphs painted per ribbon run */
+.editor-ink{
+  position:absolute;
+  left:0;
+  top:0;
+  width:var(--text-w);
+  min-height:var(--text-h);
+  pointer-events:none;
+  -webkit-user-select:none;
+  user-select:none;
+  overflow:hidden;
+  z-index:0;
+}
+/* per-run ribbon colour, used by the mirror layer and by the print sheets (§48).
+   -webkit-text-fill-color is set explicitly as well: it is inherited, so leaving it to the
+   container would repaint every run in the container's colour on WebKit. */
+.ink-0{color:var(--ribbon-0);-webkit-text-fill-color:var(--ribbon-0)}
+.ink-1{color:var(--ribbon-1);-webkit-text-fill-color:var(--ribbon-1)}
+.editor-ink .composing{text-decoration:underline}
+
+/* ------------------------------------------------------------------ print-only DOM
+   §14 never print the textarea · §32 EXPORT PDF · §33 no page numbers of our own
+   §10.1 the 9in text block is not a clipping box: the 11in sheet is.             */
+#print-root{display:none}
+
+@media print{
+  @page{size:letter;margin:0}
+  html,body{background:#fff;height:auto}
+  .bar,.stage{display:none !important}
+  #print-root{display:block}
+
+  .print-sheet{
+    width:8.5in;
+    height:11in;
+    padding:1in;
+    box-sizing:border-box;
+    overflow:hidden;
+    background:var(--paper-color);
+    color:var(--ribbon-color);
+    -webkit-text-fill-color:currentColor;
+    position:relative;
+    break-after:page;
+    page-break-after:always;
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+  .print-sheet:last-child{break-after:auto;page-break-after:auto}
+  .print-flow{
+    width:6.5in;
+    height:9in;
+    overflow:visible;               /* glyph ink may paint past the logical rows */
+    font-family:var(--font-stack);
+    font-size:calc(1in / 6);
+    line-height:var(--row);
+    font-kerning:none;
+    font-variant-ligatures:none;
+    font-feature-settings:"liga" 0,"clig" 0;
+    letter-spacing:normal;
+    -webkit-text-size-adjust:100%;
+  }
+  .print-row{
+    height:var(--row);
+    line-height:var(--row);
+    white-space:pre;
+    overflow:visible;
+    margin:0;
+    padding:0;
+  }
+}

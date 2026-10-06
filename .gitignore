@@ -1,0 +1,10 @@
+# macOS
+.DS_Store
+
+# Development font binaries: large (35 MB TTF + two 18.9 MB intermediates), kept locally.
+# The runtime assets the app actually needs are in assets/fonts/ and ARE committed.
+Dev-Memo-0.1.2/_dev-fonts/*.ttf
+Dev-Memo-0.1.2/_dev-fonts/*.woff2
+
+# scratch
+*.tmp
