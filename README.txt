@@ -1,7 +1,11 @@
 Word Καλλιόπη — README
 ======================
 
-版本 1.1.1 ｜ 本文件随软件一起保留，是给使用者的说明，不是开发文档。
+版本 1.1.2 ｜ 本文件随软件一起保留，是给使用者的说明，不是开发文档。
+
+    1.1.2 起，按键音改为复音播放：快速打字时前一次声音不再被截断，
+    也不再出现「按了键却没有声音」。随包提供四组声音（字符键、空格与
+    方向键、回车、换纸），全部可在 C 节更换。详见 C 节。
 
 
 A. ABOUT WORD ΚΑΛΛΙΌΠΗ
@@ -66,16 +70,23 @@ Print / PDF 使用当前的 PAPER 与 RIBBON。
 C. ADDING YOUR OWN SOUNDS
 -------------------------
 
-/assets/audio/ 默认不需要任何声音文件，没有音效时程序完全正常工作。
+/assets/audio/ 不需要任何声音文件，没有音效时程序完全正常工作。
 
-想加入打字声时，把 MP3 放进 /assets/audio/，并严格使用以下文件名：
+发行包内附四组声音，各自独立，缺哪一组哪一组静默（不弹提示、不报错）：
+
+    sound1.mp3    普通字符键                                263 ms
+    sound2.mp3    空格、方向键、Page Up/Down、Home、End、退格   211 ms
+    sound3.mp3    回车                                     1047 ms
+    sound4.mp3    换下一页纸（视窗真的换到另一张纸时）        1047 ms
+
+想更换音效时，把 MP3 放进 /assets/audio/，并严格使用以下文件名：
 
     sound1.mp3    ordinary character key
-    sound2.mp3    space
+    sound2.mp3    space, arrows, Page Up / Page Down, Home, End, Backspace
     sound3.mp3    return
+    sound4.mp3    the sheet turning over
 
-允许只放 1 个、2 个或 3 个文件；缺少的音效直接静默，
-不影响打字，不弹提示，也不产生错误。使用者不需要修改
-HTML / CSS / JavaScript 中的任何内容。
+允许只放其中任意几个；缺少的音效直接静默，不影响打字，也不产生错误。
+使用者不需要修改 HTML / CSS / JavaScript 中的任何内容。
 
     Audio is feedback, never logic.

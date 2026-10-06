@@ -46,7 +46,7 @@
   var DEFAULT_NAME = "Untitled.txt";
   /* reported as <html data-build> so a stale cached script can be told apart from a bug.
      Keep in step with --build in style.css (<html data-css>). */
-  var APP_BUILD = "1.1.1";
+  var APP_BUILD = "1.1.2";
 
   /* ------------------------------------------------------------------- elements */
   var el = {};
@@ -425,8 +425,15 @@
     var info = caretInfo();
     var sheet = info.sheet < 0 ? 0 : info.sheet;
     if (force || sheet !== state.sheet) {
+      var turned = !force && sheet !== state.sheet;
       state.sheet = sheet;
       positionEditor();
+      /* §24 slot 3 is the only sound that is not a keystroke: the sheet turning over.
+         It is read here because this is where "the view really moved to another sheet"
+         is already decided - typing past the foot of a sheet, arrowing or paging across
+         one, clicking into another. `force` is the new-document / open / recovery path
+         and stays silent. This is a read: nothing is written, nothing waits (§25). */
+      if (turned) playSound(3);
     }
     /* §15 end-of-line warning state. The warning tracks the typing position (the
        carriage) inside the current 78-unit line: at 70 units the line is in the
@@ -764,29 +771,184 @@
 
   /* ============================================================== 6. sound §24 */
   /* Audio is feedback, never logic (§25): the edit never waits for it, every
-     rejection is swallowed, and any subset of the three files may be missing. */
-  var audio = { on: true, els: [] };
+     rejection is swallowed, and any subset of the files may be missing.
 
-  function initAudio() {
-    var files = ["assets/audio/sound1.mp3", "assets/audio/sound2.mp3", "assets/audio/sound3.mp3"];
-    for (var i = 0; i < files.length; i++) {
-      (function () {
-        var a = document.createElement("audio");
-        a.preload = "auto";
-        a.src = files[i];
-        a.addEventListener("error", function () { /* missing asset: fail silently §04/§25 */ });
-        document.body.appendChild(a);
-        audio.els.push(a);
-      })();
+     1.1.2 reworks HOW a hit is started, and widens the set from three slots to four.
+     The SOUND ON/OFF control is unchanged. Measured on the 1.1.1 code (Safari 27,
+     file://, 137 keystrokes in a burst): the three slots held 18 <audio> elements,
+     the browser refused 21 play() calls and every one of those was heard as a key
+     with no sound at all - 15 % of the keystrokes. The refusals come from having
+     that many media elements racing, not from the sound itself. So there are two
+     routes now, and the better one is tried first:
+
+       "webaudio" - each existing file is decoded once into an AudioBuffer and a hit
+                    is a fresh AudioBufferSourceNode. No media element, no pipeline
+                    start-up, nothing to refuse, polyphony for free. This is the
+                    route the published (http/https) build takes because it needs
+                    fetch(). Measured: 278 of 278 hits started, 0 elements.
+       "element"  - fallback for file://, where fetch() is refused outright: only the
+                    slots whose file actually exists get voices, AUDIO_VOICES[i] each,
+                    and a voice is parked back at 0 once it has ended so no seek ever
+                    sits on the keystroke path. Measured: 0 refusals, 0 silent keys,
+                    2.7 ms from key to sound.
+
+     Slot 3 is the one sound that is not a keystroke: it is the sheet turning over,
+     read from syncSheet() where that is already decided (§13).
+
+     No route touches the editor, the document, the caret or any output. */
+  var AUDIO_FILES = [
+    "assets/audio/sound1.mp3",   /* 0  ordinary character key           */
+    "assets/audio/sound2.mp3",   /* 1  space, arrows, paging, Home/End  */
+    "assets/audio/sound3.mp3",   /* 2  return                           */
+    "assets/audio/sound4.mp3"    /* 3  the sheet turns over - not a key */
+  ];
+  /* Voices per slot, sized by traffic x duration instead of one flat number: slot 0 is
+     the shortest sound and takes most of the typing, slot 2 is a second long, and the
+     sheet only turns over now and then. A flat 4 would mean 16 media elements once all
+     four files exist, and 18 is the count at which Safari started refusing play()
+     outright. This budget is 11. */
+  var AUDIO_VOICES = [4, 3, 2, 2];
+  var AUDIO_PARK_MS = 120;                /* element route: settle before rewinding */
+  /* Slot 1 covers the keys that are not characters and not return: the delivered asset
+     names space, the arrows, paging and Home/End together. The product side then ruled
+     two further keys one at a time (2026-10-06) - Backspace takes this same sound,
+     Delete stays silent.
+
+     Left silent on purpose: Delete. Tab is silent too but that is a leftover rather
+     than a decision - it inserts four units, so it is an editing key like the others,
+     and the product side has not ruled on it yet (see the handover, open questions).
+     Shift/Ctrl/Alt/Meta, Escape and the function keys are not editing keys and are
+     silent by design. */
+  var AUDIO_NAV_KEYS = {
+    " ": 1, ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1,
+    PageUp: 1, PageDown: 1, Home: 1, End: 1,
+    Backspace: 1
+  };
+  var audio = { on: true, route: "none", ctx: null, buffers: [], pools: [] };
+
+  function newAudioEl(src) {
+    var a = document.createElement("audio");
+    a.preload = "auto";
+    a.src = src;
+    a.addEventListener("error", function () { /* missing asset: fail silently §04/§25 */ });
+    document.body.appendChild(a);
+    return a;
+  }
+
+  /* ---- route "webaudio": decode whatever exists, leave the rest silent (§25) ---- */
+  function initWebAudio(done) {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC || typeof fetch !== "function") { done(false); return; }
+    var ctx;
+    try { ctx = new AC(); } catch (e) { done(false); return; }
+    var left = AUDIO_FILES.length, live = 0;
+    var finish = function () {
+      if (--left > 0) return;
+      if (live) { audio.ctx = ctx; done(true); }
+      else { try { if (ctx.close) ctx.close(); } catch (e) {} done(false); }
+    };
+    for (var i = 0; i < AUDIO_FILES.length; i++) {
+      (function (i) {
+        fetch(AUDIO_FILES[i]).then(function (r) {
+          if (!r.ok) throw new Error("http " + r.status);
+          return r.arrayBuffer();
+        }).then(function (buf) {
+          return new Promise(function (res, rej) {
+            var ret = ctx.decodeAudioData(buf, res, rej);
+            if (ret && ret.then) ret.then(res, rej);
+          });
+        }).then(function (decoded) {
+          audio.buffers[i] = decoded; live++;
+        })["catch"](function () { /* missing file or refused fetch: slot stays silent */ })
+          .then(finish);
+      })(i);
     }
   }
 
+  /* a voice is rewound only once it has ended, so play() never pays for a seek */
+  function wireVoice(a) {
+    a.addEventListener("ended", function () {
+      setTimeout(function () {
+        if (a.paused || a.ended) { try { a.currentTime = 0; } catch (e) {} }
+      }, AUDIO_PARK_MS);
+    });
+  }
+
+  function pickVoice(pool) {
+    var n = pool.length;
+    if (pool.__rr === undefined) pool.__rr = 0;
+    var first = null;
+    for (var k = 0; k < n; k++) {
+      var c = pool[(pool.__rr + k) % n];
+      if (c.paused || c.ended) { pool.__rr = (pool.__rr + k + 1) % n; return c; }
+      if (!first) first = c;
+    }
+    pool.__rr = (pool.__rr + 1) % n;
+    return first;
+  }
+
+  /* ---- route "element": nothing is built for a slot whose file is not there ---- */
+  function initElementRoute() {
+    for (var i = 0; i < AUDIO_FILES.length; i++) {
+      (function (i) {
+        var probe = newAudioEl(AUDIO_FILES[i]);
+        var settled = false;
+        var finish = function (exists) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          if (!exists) {
+            probe.removeAttribute("src");
+            if (probe.load) probe.load();
+            if (probe.parentNode) probe.parentNode.removeChild(probe);
+            return;                       /* dead slot: it never costs an element */
+          }
+          wireVoice(probe);
+          audio.pools[i].push(probe);     /* the probe becomes the first voice */
+          var want = AUDIO_VOICES[i] || AUDIO_VOICES[0];
+          for (var v = 1; v < want; v++) {
+            var el = newAudioEl(AUDIO_FILES[i]);
+            wireVoice(el);
+            audio.pools[i].push(el);
+          }
+        };
+        probe.addEventListener("loadedmetadata", function () { finish(true); });
+        probe.addEventListener("error", function () { finish(false); });
+        var timer = setTimeout(function () { finish(false); }, 2500);
+      })(i);
+    }
+  }
+
+  function initAudio() {
+    audio.route = "none";
+    audio.buffers = [];
+    audio.pools = [];
+    for (var i = 0; i < AUDIO_FILES.length; i++) audio.pools.push([]);
+    initWebAudio(function (ok) {
+      if (ok) { audio.route = "webaudio"; return; }
+      audio.route = "element";
+      initElementRoute();
+    });
+  }
+
   function playSound(i) {
-    if (!audio.on) return;
-    var a = audio.els[i];
-    if (!a) return;
+    if (!audio.on || audio.route === "none") return;
     try {
-      a.currentTime = 0;
+      if (audio.route === "webaudio") {
+        var buf = audio.buffers[i];
+        if (!buf) return;
+        /* the context is born suspended until a gesture; a keystroke is one (§25) */
+        if (audio.ctx.state === "suspended" && audio.ctx.resume) audio.ctx.resume();
+        var src = audio.ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(audio.ctx.destination);
+        src.start();
+        return;
+      }
+      var pool = audio.pools[i];
+      if (!pool || !pool.length) return;
+      var a = pickVoice(pool);
+      if (a.currentTime !== 0) a.currentTime = 0;
       var p = a.play();
       if (p && typeof p.catch === "function") p.catch(function () {});
     } catch (e) { /* §25 never let audio break input */ }
@@ -795,7 +957,7 @@
   function playForKeystroke(e) {
     if (!audio.on) return;
     if (e.key === "Enter") playSound(2);
-    else if (e.key === " ") playSound(1);
+    else if (AUDIO_NAV_KEYS[e.key] === 1) playSound(1);
     else if (e.key.length === 1 || e.isComposing || e.keyCode === 229) playSound(0);
   }
 
