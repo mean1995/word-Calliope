@@ -8,3 +8,6 @@ Dev-Memo-0.1.2/_dev-fonts/*.woff2
 
 # scratch
 *.tmp
+
+# local tooling (not part of the release)
+.tools/
