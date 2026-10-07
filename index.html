@@ -43,8 +43,14 @@
     <div class="machine-slot" aria-hidden="true">
       <img class="machine-logo" src="logo.svg" alt="">
     </div>
-    <div class="paper" id="paper">
-      <div class="sheet-window" id="sheet-window"><!-- editor built by app.js --></div>
+    <!-- 1.1.4 platen window: the sheet is fed from below, so it is moved down inside this
+         wrapper and everything below the printing line - the part still inside the machine -
+         is clipped here. It has to be its own box rather than .stage-inner: the machine badge
+         sits to the LEFT of .stage-inner and would be clipped with the sheet. -->
+    <div class="platen" aria-hidden="true">
+      <div class="paper" id="paper">
+        <div class="sheet-window" id="sheet-window"><!-- editor built by app.js --></div>
+      </div>
     </div>
     <div class="rail-mark rail-mark-left" id="rail-left" aria-hidden="true"></div>
     <div class="rail-mark rail-mark-right" id="rail-right" aria-hidden="true"></div>
