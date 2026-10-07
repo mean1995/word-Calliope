@@ -25,23 +25,6 @@
   var RECOVERY_MS = 3 * 60 * 1000;        /* §38 */
   var SHEET_PX = ROWS_PER_SHEET * ROW_PX; /* 864 */
   var PAPER_W = 8.5 * 96, PAPER_H = 11 * 96;
-  /* ---------------------------------------------------------------- paper feed (1.1.4)
-     A sheet is a sheet, not a viewport: it rises out of the machine from below, and the
-     printing point - the carriage line - never moves. The visible height of the paper above
-     that line is FEED_MIN while the caret is on the sheet's first row, and grows by exactly
-     one row for every row the caret advances, up to FEED_MAX on the sheet's last row.
-     FEED_OUT is the whole sheet: the state a finished page reaches - bottom margin and the
-     colophon included - before the next sheet is fed in. All four are DOCUMENT measurements
-     (§10), so document ZOOM scales them; nothing here is a screen-space constant. */
-  var FEED_MIN = 96 + ROW_PX;                    /* 112  = 1in top margin + the caret's row */
-  var FEED_MAX = 96 + ROWS_PER_SHEET * ROW_PX;   /* 960  = caret on the sheet's last row    */
-  var FEED_OUT = PAPER_H;                        /* 1056 = the whole sheet out              */
-  var SHEET_OUT_MS = 650;                        /* how long a finished sheet stays out     */
-  /* The seam between two sheets in the stack: a visible gap, so a page break reads as a page
-     break instead of an endless scroll. A DOCUMENT measurement like the rest of the paper
-     geometry (§10), so it scales with ZOOM: 9.3px at FIT, 12px at 100%, 18px at 150%.
-     Ruled 2026-10-08: a few px to ten-odd px, only needs to be visible. */
-  var SHEET_GAP = 12;
   var PAPER_COLORS = [
     /* §08, colours re-ruled by the product side on 2026-10-06 (Notes §13). This array is what
        paints the screen and the print sheets, so it must stay in step with --paper-white /
@@ -63,7 +46,7 @@
   var DEFAULT_NAME = "Untitled.txt";
   /* reported as <html data-build> so a stale cached script can be told apart from a bug.
      Keep in step with --build in style.css (<html data-css>). */
-  var APP_BUILD = "1.1.4";
+  var APP_BUILD = "1.1.3";
 
   /* ------------------------------------------------------------------- elements */
   var el = {};
@@ -74,9 +57,6 @@
     el.stageInner = document.getElementById("stage-inner");
     el.paper = document.getElementById("paper");
     el.window = document.getElementById("sheet-window");
-    /* 1.1.4: the platen window holds the finished sheets that stay in the machine */
-    el.sheetLayer = document.querySelector(".platen");
-    el.machineLogo = document.querySelector(".machine-logo");
     /* 1.1.1 rail marks: read-only presentation markers flanking the caret's visual line */
     el.railLeft = document.getElementById("rail-left");
     el.railRight = document.getElementById("rail-right");
@@ -107,13 +87,7 @@
     handle: null,          /* FileSystemFileHandle when the platform grants one  §30 */
     safeOverwrite: true,   /* false once U+FFFD was seen on OPEN                 §29 */
     savedText: "",         /* value at the last SAVE / OPEN / NEW                   */
-    sheet: 0,              /* the sheet the caret is on: the EDITABLE one           §13 */
-    /* 1.1.4 (ruled 2026-10-08 §1/§2): how much paper exists is the document's business, not
-       the caret's. `outSheet` only ever holds a sheet that is being rolled out as part of a
-       forward sheet change - null the rest of the time, including while the caret is moved
-       back into paper that is already out. */
-    outSheet: null,        /* the finished sheet being rolled out, or null          1.1.4 */
-    outAt: 0,              /* when that roll-out started, for the 650ms dwell       1.1.4 */
+    sheet: 0,
     layout: null,
     autoReturn: true,      /* §16 */
     zoomIndex: 0,
@@ -316,9 +290,7 @@
     bindEditor(ta);
     relayout();
     setCaret(0);
-    /* a fresh document: sheet 1, and no sheet change in flight (1.1.4) */
     state.sheet = 0;
-    state.outSheet = null;
     positionEditor();
     syncInk(true);
     try { ta.focus({ preventScroll: true }); } catch (e) { ta.focus(); }
@@ -444,278 +416,33 @@
 
   function positionEditor() {
     if (!el.flow) return;
-    /* the editable sheet is liveSheet(): while a finished sheet is on its way out (1.1.4) the
-       paper still holds THAT sheet's rows, so the flow must not move yet */
-    el.flow.style.top = (-(liveSheet() * SHEET_PX)) + "px";
+    el.flow.style.top = (-(state.sheet * SHEET_PX)) + "px";
     resetScroll();
   }
 
-  /* ---------------------------------------------------------------- paper feed (1.1.4)
-     RULED 2026-10-08 (§1, §3): the caret says WHERE THE USER IS EDITING; the laid-out document
-     says HOW MUCH PAPER EXISTS and how far it has been fed. Two different things, and keeping
-     them apart is what makes "go back and fix a line on page 1" behave:
-
-       - moving the caret back never retracts the roll, never removes a sheet and never replays
-         a sheet change (§2);
-       - every page the document actually has is on the roll, whether the caret is in it or not
-         (§4, §9);
-       - paper still feeds upward while writing at the document frontier, so the machine keeps
-         its behaviour exactly where it was designed to have it (§5, §6).
-
-     The frontier is a pure function of the document's own extent - never of the caret. */
-  function documentRows() {
-    if (!state.layout) relayout();
-    var n = state.layout ? state.layout.totalRows : 1;
-    return n > 0 ? n : 1;                            /* an empty document is one empty line */
-  }
-
-  function frontier() {
-    var last = documentRows() - 1;                   /* the last visual row of the document */
-    var sheet = Math.floor(last / ROWS_PER_SHEET);
-    return { sheet: sheet, feed: FEED_MIN + (last - sheet * ROWS_PER_SHEET) * ROW_PX };
-  }
-
-  /* The sheet whose paper is the editable one: normally the caret's sheet, and while a finished
-     sheet is being rolled out, that finished sheet (§7). */
-  function liveSheet() {
-    return state.outSheet === null ? state.sheet : state.outSheet;
-  }
-
-  /* One geometry for everything on screen:
-       sheets : the highest sheet index that exists on the roll (the frontier, or the sheet
-                being rolled out during a sheet change)
-       feed   : how far THAT sheet has come out, in document px above the printing line
-       docH   : the machine box in document px - one full band per sheet plus the visible part
-                of the last one, with one page as the floor so the first sheet stands in an
-                empty machine
-       platen : the printing line, in screen px from the box's top
-       live   : the sheet whose paper is the editable one */
-  function feedGeometry(z) {
-    var f = frontier();
-    var out = state.outSheet;
-    var sheets = out === null ? f.sheet : out;
-    var feed = out === null ? f.feed : FEED_OUT;
-    var docH = Math.max(PAPER_H, sheets * (PAPER_H + SHEET_GAP) + feed);
-    return { sheets: sheets, feed: feed, docH: docH, platen: docH * z,
-             live: out === null ? state.sheet : out };
-  }
-
-  /* The printing line - the carriage line at the machine - in screen px from the box's top. */
-  function platenY(z) {
-    return feedGeometry(z).platen;
-  }
-
-  /* Places the live sheet at the bottom of the stack, and keeps the printing line where the
-     eye left it: as the paper is fed the stack above grows, and it is the machine - not the
-     text - that must look still. Anchored only while that line is on screen, so scrolling
-     back through finished sheets is never fought. Screen-space only: the TXT, Recovery,
-     pagination, Print and PDF never see any of it. */
-  function updateFeed() {
-    if (!el.paper) return;
-    var z = currentZoom();
-    var geo = feedGeometry(z);
-    var before = el.stageInner ? el.stageInner.getBoundingClientRect().bottom : null;
-    el.stageInner.style.height = geo.platen + "px";
-    /* the root keeps a permanent scrollbar gutter (style.css), which narrows the content box
-       by the scrollbar's width; shifting the machine by half of it centres it on the window
-       instead of 8px to the left. Zero on overlay scrollbars (iOS, default macOS), so this
-       is a no-op there. */
-    var gutter = window.innerWidth - document.documentElement.clientWidth;
-    el.stageInner.style.transform = gutter > 0 ? "translateX(" + (gutter / 2) + "px)" : "";
-    /* the editable sheet is a full page, EXCEPT when it is the sheet at the frontier: only
-       that one is still coming out of the machine, so only that one is clipped */
-    var clipFeed = (geo.live === geo.sheets) ? geo.feed : PAPER_H;
-    el.paper.style.transform =
-      "translateY(" + (geo.live * (PAPER_H + SHEET_GAP) * z) + "px) scale(" + z + ")";
-    var clip = "inset(0px 0px " + (PAPER_H - clipFeed) + "px 0px)";
-    el.paper.style.clipPath = clip;
-    el.paper.style.webkitClipPath = clip;
-    /* the badge is machine chrome (1.1.3: 409.5px above the printing line, never moved by
-       ZOOM). 1.1.4 anchors it to that line instead of the paper's top edge, so a growing
-       roll above cannot drag it along. */
-    if (el.machineLogo) el.machineLogo.style.top = (geo.platen - 434) + "px";
-    paintSheets(geo, z);
-    var after = el.stageInner ? el.stageInner.getBoundingClientRect().bottom : null;
-    if (before !== null && after !== null && after !== before &&
-        before > 0 && before < window.innerHeight) {
-      window.scrollBy(0, after - before);
-    }
-  }
-
-  /* Reveals the caret when the user is editing somewhere the roll does not already show (§9,
-     §11: OPEN, Recovery and navigation must never hide the place being edited). Only ever
-     scrolls when the caret is actually off screen, and never while the caret is at the
-     frontier - there the printing line is what must stay still, and it does. */
-  function revealCaret() {
-    if (!el.editor || !state.layout || !el.stageInner) return;
-    var z = currentZoom();
-    var geo = feedGeometry(z);
-    if (geo.live === geo.sheets) return;             /* at the frontier: the platen rule owns it */
-    var pick = railRow(caretInfo());
-    if (pick.row < geo.live * ROWS_PER_SHEET ||
-        pick.row >= (geo.live + 1) * ROWS_PER_SHEET) return;
-    var rowTop = (geo.live * (PAPER_H + SHEET_GAP) + RAIL_MARGIN_PX +
-                  (pick.row - geo.live * ROWS_PER_SHEET) * ROW_PX) * z;
-    var top = el.stageInner.getBoundingClientRect().top + window.pageYOffset + rowTop;
-    var bottom = top + ROW_PX * z;
-    if (top < window.pageYOffset + 80) window.scrollTo(0, Math.max(0, top - 80));
-    else if (bottom > window.pageYOffset + window.innerHeight - 80) {
-      window.scrollTo(0, bottom - window.innerHeight + 80);
-    }
-  }
-
-  /* The caret's row in screen px from the machine box's top (ruled 2026-10-08 §5). It is the
-     one place the two states of the model meet: at the frontier the caret's row IS the printing
-     line, so paper moves and the carriage stays; back in paper that is already out, the carriage
-     is drawn on the caret's own row inside that sheet while the paper stays put. While a
-     finished sheet is being rolled out, the carriage waits at the printing line. */
-  function caretRowTop(z, pick) {
-    var geo = feedGeometry(z);
-    if (state.outSheet !== null) return geo.platen - ROW_PX * z;
-    return (geo.live * (PAPER_H + SHEET_GAP) + RAIL_MARGIN_PX +
-            (pick.row - geo.live * ROWS_PER_SHEET) * ROW_PX) * z;
-  }
-
-  /* ------------------------------------------------- finished sheets: the stack (1.1.4)
-     A finished sheet does not leave the machine - it stays in the stack above the printing
-     line, so everything typed can be scrolled back to. The finished sheets are painted
-     read-only from the same layout the print path uses; the live sheet keeps the textarea.
-     A sheet is repainted only when its own content or the ribbon runs actually changed, so
-     typing at the end of a document does not rebuild the pages before it. */
-  var sheetCopies = [];          /* index -> element, one per sheet on the roll */
-  var sheetSigs = [];            /* index -> content signature last painted  */
-
-  function sheetSignature(rows, from, to) {
-    var sig = "", i;
-    for (i = from; i < to && i < rows.length; i++) sig += rows[i].text + "\u0000";
-    /* the ribbon boundaries are what make a row more than one colour; they change rarely */
-    for (i = 0; i < state.runs.length; i++) sig += state.runs[i].start + ":" + state.runs[i].colour + ",";
-    return sig;
-  }
-
-  function paintSheetCopy(box, rows, from, to) {
-    while (box.firstChild) box.removeChild(box.firstChild);
-    var flow = document.createElement("div");
-    flow.className = "sheet-flow";
-    for (var r = from; r < to && r < rows.length; r++) {
-      var line = document.createElement("div");
-      line.className = "sheet-row";
-      var segs = rowSegments(rows[r]);
-      for (var g = 0; g < segs.length; g++) {
-        var cell = document.createElement("span");
-        cell.className = "ink-" + (segs[g].colour ? 1 : 0);
-        cell.textContent = segs[g].text;
-        line.appendChild(cell);
-      }
-      flow.appendChild(line);
-    }
-    /* the colophon lives in the sheet's bottom margin, exactly as on the live sheet */
-    var mark = document.createElement("div");
-    mark.className = "sheet-mark";
-    mark.textContent = "WORD KALLIOPE BY VIC";
-    box.appendChild(flow);
-    box.appendChild(mark);
-  }
-
-  /* Paints the roll: every sheet the document has is on it. The sheet the caret is in is the
-     real, editable paper (the textarea lives there); all the others - BEFORE it and AFTER it
-     (§4) - are read-only copies, so no page can be hidden behind the caret's position. Only
-     the sheet at the frontier is clipped: it is the one still coming out of the machine. */
-  function paintSheets(geo, z) {
-    if (!el.sheetLayer || !state.layout) return;
-    var last = geo.sheets, live = geo.live, rows = null, s;
-    for (s = 0; s <= last; s++) {
-      if (s === live) continue;                      /* that one is the editable paper */
-      if (!rows) rows = flattenRows(state.layout);
-      var from = s * ROWS_PER_SHEET, to = from + ROWS_PER_SHEET;
-      var sig = sheetSignature(rows, from, to);
-      var box = sheetCopies[s];
-      if (!box) {
-        box = document.createElement("div");
-        box.className = "sheet-copy";
-        box.setAttribute("aria-hidden", "true");
-        el.sheetLayer.appendChild(box);
-        sheetCopies[s] = box;
-        sheetSigs[s] = null;
-      }
-      var clipFeed = (s === last) ? geo.feed : PAPER_H;
-      box.style.transform =
-        "translateY(" + (s * (PAPER_H + SHEET_GAP) * z) + "px) scale(" + z + ")";
-      var clip = "inset(0px 0px " + (PAPER_H - clipFeed) + "px 0px)";
-      box.style.clipPath = clip;
-      box.style.webkitClipPath = clip;
-      if (sheetSigs[s] !== sig) {
-        paintSheetCopy(box, rows, from, to);
-        sheetSigs[s] = sig;
-      }
-    }
-    /* sheets the document no longer has (§3: only a real change of extent removes paper), and
-       the band the editable paper has taken over, leave the roll */
-    for (var k = 0; k < sheetCopies.length; k++) {
-      if (k > last || k === live) {
-        if (sheetCopies[k] && sheetCopies[k].parentNode) {
-          sheetCopies[k].parentNode.removeChild(sheetCopies[k]);
-        }
-        sheetCopies[k] = null;
-        sheetSigs[k] = null;
-      }
-    }
-  }
-
-  /* A finished sheet stays out for SHEET_OUT_MS and then the next one is fed in - without
-     another keystroke, which is why this timer exists. */
-  var feedTimer = null;
-  function scheduleFeedCatchUp() {
-    if (feedTimer) return;
-    feedTimer = window.setTimeout(function () {
-      feedTimer = null;
-      syncSheet(false);
-    }, SHEET_OUT_MS + 20);
-  }
-
-  /* Keeps the view in step with where the user is editing. The caret decides only WHICH sheet is
-     editable and where the carriage is drawn; how much paper exists is the document's business
-     (§1). Nothing here can therefore retract the roll, and nothing here plays the sheet change -
-     that belongs to forward writing alone (§7, see beginSheetTurn). */
   function syncSheet(force) {
     if (!el.editor) return;
     var info = caretInfo();
-    var liveBefore = liveSheet();
-    if (force) state.outSheet = null;              /* new / open / recovery: not a sheet change */
-    state.sheet = info.sheet < 0 ? 0 : info.sheet;
-    /* a finished sheet finishes rolling out on its own, with no keystroke involved */
-    if (state.outSheet !== null && Date.now() - state.outAt >= SHEET_OUT_MS) state.outSheet = null;
-    if (liveSheet() !== liveBefore) positionEditor();
+    var sheet = info.sheet < 0 ? 0 : info.sheet;
+    if (force || sheet !== state.sheet) {
+      var turned = !force && sheet !== state.sheet;
+      state.sheet = sheet;
+      positionEditor();
+      /* §24 slot 3 is the only sound that is not a keystroke: the sheet turning over.
+         It is read here because this is where "the view really moved to another sheet"
+         is already decided - typing past the foot of a sheet, arrowing or paging across
+         one, clicking into another. `force` is the new-document / open / recovery path
+         and stays silent. This is a read: nothing is written, nothing waits (§25). */
+      if (turned) playSound(3);
+    }
     /* §15 end-of-line warning state. The warning tracks the typing position (the
        carriage) inside the current 78-unit line: at 70 units the line is in the
        margin warning state. There is no bell asset, so the state never depends on
        sound and never alters input behaviour; it is exposed as an attribute only. */
     if (info.colUnits >= MARGIN_UNITS) el.paper.setAttribute("data-margin", "warning");
     else el.paper.removeAttribute("data-margin");
-    updateFeed();
     updateRailMarks();
-    updatePaperMark();
     updateTypeLine();
-    if (state.outSheet !== null) scheduleFeedCatchUp();
-  }
-
-  /* §24 slot 3 is the only sound that is not a keystroke: the sheet turning over. RULED
-     2026-10-08 (§7): it - and the 650ms "finished sheet rolls out, then the next one goes in"
-     sequence - belongs to FORWARD WRITING that takes the document into a new physical sheet,
-     and to nothing else. Navigation, selection, undoing, opening a file or returning to a sheet
-     that already exists must never replay either of them.
-
-     All three of these must hold, which together mean "the user was typing at the frontier":
-     the document really grew a sheet, it grew by exactly one, and the caret crossed with it. */
-  function beginSheetTurn(prevFrontier) {
-    if (state.outSheet !== null) return;             /* already turning */
-    var now = frontier();
-    if (now.sheet !== prevFrontier.sheet + 1) return;
-    var pick = railRow(caretInfo());
-    if (Math.floor(pick.row / ROWS_PER_SHEET) !== now.sheet) return;
-    state.outSheet = prevFrontier.sheet;
-    state.outAt = Date.now();
-    playSound(3);
   }
 
   /* ================================================= 3a. paper colophon (1.1.1)
@@ -731,15 +458,9 @@
     var m = el.paperMark;
     if (!m) return;
     var z = currentZoom();
-    var geo = feedGeometry(z);
-    /* 1.1.4: the colophon is printed in the bottom margin, so it exists on screen only once
-       that margin is out of the machine: always true for a sheet that is not the frontier
-       (its page is finished), and true for the frontier sheet only when it has been rolled
-       all the way out. */
-    var out = (geo.live !== geo.sheets) || geo.feed > PAPER_MARK_CENTRE;
     m.style.fontSize = (PAPER_MARK_SIZE * z) + "px";
-    m.style.top = (geo.live * (PAPER_H + SHEET_GAP) * z + PAPER_MARK_CENTRE * z) + "px";
-    m.style.display = out ? "block" : "none";
+    m.style.top = (PAPER_MARK_CENTRE * z) + "px";
+    m.style.display = "block";
   }
 
   /* ================================================= 3b. rail marks (1.1.1)
@@ -796,10 +517,8 @@
        the trailing mark has no last character cell to sit after. */
     var z = currentZoom();
     var xFirst = RAIL_MARGIN_PX * z;                               /* first cell's left edge */
-    /* ruled 2026-10-08 §5: while writing at the frontier this is the printing line (paper
-       moves, carriage stays); when the caret goes back into paper that is already out, the
-       carriage follows the caret up the roll and the paper does not move. */
-    var yCentre = caretRowTop(z, pick) + (ROW_PX / 2) * z;         /* line's vertical centre */
+    var yCentre = (RAIL_MARGIN_PX + (pick.row - state.sheet * ROWS_PER_SHEET) * ROW_PX +
+                   ROW_PX / 2) * z;                                /* line's vertical centre */
     /* eight character cells in DOCUMENT space: the gap grows with document ZOOM, so the mark
        always reads as eight characters away from the row's first cell (PM 2026-10-06) */
     left.style.left = (xFirst - RAIL_LEFT_CELLS * RAIL_UNIT_PX * z - RAIL_W) + "px";
@@ -846,12 +565,9 @@
         el.editor.selectionStart !== el.editor.selectionEnd) { hideAll(); return; }
     var pick = railRow(locate(state.layout, el.editor.selectionStart || 0));
     var z = currentZoom();
+    var colTop = RAIL_MARGIN_PX + (pick.row - state.sheet * ROWS_PER_SHEET) * ROW_PX;
     var xRight = (RAIL_MARGIN_PX + pick.colUnits * RAIL_UNIT_PX) * z;   /* the caret itself */
-    /* ruled 2026-10-08 §5: the carriage line marks where the user is editing. At the frontier
-       that is the printing line; back in paper that is already out, it travels up the roll
-       with the caret while the paper stays put. */
-    var colTop = caretRowTop(z, pick);                   /* the caret's row            */
-    var lineTop = colTop + ROW_PX * z;                   /* the carriage line's own row */
+    var lineTop = (colTop + ROW_PX) * z;                 /* the carriage line's own row */
     var h = (TYPE_LINE_H * z) + "px";
     /* ONE integrated rail: the caret's row and the row two above it, left segment ... */
     var leftX = (xRight - TYPE_LINE_CELLS * RAIL_UNIT_PX * z) + "px";
@@ -892,34 +608,20 @@
        Safari, so a paper-coloured patch covers it as well (PM 2026-10-06: hide it completely) */
     if (mask) {
       mask.style.left = (xRight - 1) + "px";
-      mask.style.top = colTop + "px";          /* colTop is screen-space since 1.1.4 */
+      mask.style.top = colTop * z + "px";
       mask.style.width = "2px";
       mask.style.height = (ROW_PX * z) + "px";
       mask.style.display = "block";
     }
   }
 
-  function onCaretMoved() {
-    syncSheet(false);
-    revealCaret();               /* navigation must not leave the caret behind (§9, §11) */
-  }
+  function onCaretMoved() { syncSheet(false); }
 
-  function onInput(e) {
+  function onInput() {
     var oldLen = state.inkLen || 0;
-    var prevFrontier = frontier();          /* before the layout changes (see beginSheetTurn) */
     relayout();
     noteEdit(oldLen);
     state.inkLen = document_text().length;
-    /* §7: only WRITING may start a sheet change. Undo, redo, paste and drop can all make the
-       document grow into a new sheet, and none of them is the machine turning the paper - the
-       browser labels them for us (InputEvent.inputType), so they are simply not offered the
-       turn. Everything else may try: the turn still requires the document to have grown by
-       exactly one sheet with the caret on it, so deletions and middle edits can never start
-       one. RETURN arrives as "insertParagraph" - that is typing, and it must be allowed. */
-    var kind = (e && e.inputType) || "";
-    if (kind.indexOf("history") !== 0 && kind.indexOf("insertFrom") !== 0) {
-      beginSheetTurn(prevFrontier);
-    }
     syncSheet(false);
     syncInk(false);
     scheduleRecoveryCheck();
@@ -1010,34 +712,18 @@
     return v === null ? fitZoom() : v;
   }
 
-  /* 1.1.4: the printing line sits at the bottom of the stack, so as soon as that is taller
-     than the window - every ZOOM step from 100% up, and every finished sheet - it can be
-     below the fold. The user types on that line, so the machine brings it into view whenever
-     the geometry changes (zoom, resize, first paint). Deliberately NOT on a keystroke:
-     scrolling up to read what was written is never fought. */
-  function revealPlaten() {
-    if (!el.stageInner) return;
-    var z = currentZoom();
-    var stageTop = el.stageInner.getBoundingClientRect().top + window.pageYOffset;
-    var want = stageTop + platenY(z) + 12 - window.innerHeight;
-    if (want > window.pageYOffset) window.scrollTo(0, want);
-  }
-
   /* Document geometry and viewport scale are independent (§34): zoom is a screen
      transform only, it never reaches the print DOM. */
   function applyZoom() {
     var z = currentZoom();
-    el.stageInner.style.width = (PAPER_W * z) + "px";     /* the height is updateFeed()'s:
-                                                             it depends on the stack (1.1.4) */
+    el.paper.style.transform = "scale(" + z + ")";
+    el.stageInner.style.width = (PAPER_W * z) + "px";
+    el.stageInner.style.height = (PAPER_H * z) + "px";
     el.btnZoom.textContent = "ZOOM " + ZOOM_STEPS[state.zoomIndex].label;
-    /* 1.1.1: the rail marks keep their 4x8px size but must follow the paper's new scale.
-       1.1.4: the paper's own transform belongs to updateFeed() now - ZOOM scales the feed
-       too, so the sheet is placed rather than merely scaled. */
-    updateFeed();
+    /* 1.1.1: the rail marks keep their 4x8px size but must follow the paper's new scale */
     updateRailMarks();
     updatePaperMark();
     updateTypeLine();
-    revealPlaten();
   }
 
   function cycleZoom() {
@@ -1302,12 +988,9 @@
     buildEditor(text);
     state.savedText = text;                 /* freshly opened / created: not dirty */
     state.sheet = 0;
-    state.outSheet = null;                  /* §9: an opened document is simply there - every
-                                               page it has is on the roll, no sheet change */
     positionEditor();
     applyColors();                          /* the rebuilt editor takes the live paper + ribbon */
     syncSheet(true);
-    revealCaret();                          /* the caret starts at the top of the document */
   }
 
   function confirmDiscard() {

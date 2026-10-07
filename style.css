@@ -65,7 +65,7 @@
 
   /* build marker, readable from the console as getComputedStyle(document.documentElement)
      .getPropertyValue("--build") so a stale cached stylesheet can be told apart from a bug */
-  --build:1.1.4;
+  --build:1.1.3;
 }
 
 *{box-sizing:border-box}
@@ -74,13 +74,6 @@ html,body{
   margin:0;
   padding:0;
   height:100%;
-  /* 1.1.4: the stack makes the page scroll for any document longer than one sheet, and the
-     scrollbar used to appear only some of the time - which shifted the whole stage sideways
-     the moment it did. The gutter is reserved permanently; app.js then shifts the machine
-     back by half of it (updateFeed), because a reserved gutter still narrows the content box
-     and would leave the sheet 8px left of the window's centre. WebKit's "both-edges" made
-     that worse, not better: it reserves two gutters and still starts the content at 0. */
-  scrollbar-gutter:stable;
   /* §37 never let Safari text autosizing change 12 CPI / 6 LPI */
   -webkit-text-size-adjust:100%;
   text-size-adjust:100%;
@@ -104,13 +97,6 @@ html,body{
   padding:8px 10px;
   background:#1e1d1a;
   border-bottom:1px solid #000;
-  /* 1.1.4: from ZOOM 100% up the machine is taller than the window and the page scrolls
-     (revealPlaten() in app.js brings the printing line into view). The controls used to
-     scroll away with it; sticky keeps them where they were - in flow, so at FIT, where
-     nothing scrolls, this changes nothing at all. */
-  position:sticky;
-  top:0;
-  z-index:10;
 }
 .bar-controls{
   display:flex;
@@ -207,8 +193,7 @@ html,body{
 .machine-logo{
   position:absolute;
   right:80px;                     /* logo right edge 80px left of the paper's left edge */
-  top:385px;                      /* pre-JS fallback; app.js anchors it to the printing line
-                                     1.1.4: badge centre = platen - 409.5px (see the note above) */
+  top:385px;                      /* 1.1.3 frozen: 409.5px badge centre - 49/2; see the note above */
   height:49px;                    /* 1.1.3: 1.75x the 1.1.1 28px; width:auto keeps the ratio */
   width:auto;
   display:none;                   /* the approved default state: hidden */
@@ -313,72 +298,6 @@ html,body{
 
 /* ------------------------------------------------------------------ the paper
    §07 US Letter, 1in margins, 6.5 x 9in text area · §14 same box for print sheets */
-/* 1.1.4 platen window. The sheet is fed from below (app.js updateFeed): it is moved down
-   inside this wrapper so that its top `feed` document px stand above the printing line, and
-   everything below that line is clipped away. The wrapper exists for the page's sake, not
-   the picture's: a translated box contributes its transformed extent to the scrollable
-   overflow, which added a vertical scrollbar and shifted the whole stage 8px sideways.
-   overflow:clip removes that contribution and makes the wrapper the clip boundary, so the
-   printing line is the bottom edge of .stage-inner. It must stay a separate box: .stage-inner
-   already clips nothing because the machine badge lives outside its left edge. */
-.platen{
-  position:absolute;
-  inset:0;
-  overflow:hidden;          /* fallback */
-  overflow:clip;
-}
-
-/* 1.1.4 the stack. A finished sheet does not leave the machine: it stays above the printing
-   line, so everything typed can be scrolled back to. These are read-only copies painted by
-   app.js paintFinishedSheets() from the same layout the print path uses, and each one owns
-   the page of the machine it was typed on - sheet k sits at k * 11in, so the stack only ever
-   grows upwards. Typography must match .editor / .editor-ink exactly (§10), otherwise a
-   finished sheet would not line up with the sheet it was copied from. */
-.sheet-copy{
-  position:absolute;
-  left:0;
-  top:0;
-  width:var(--sheet-w);
-  height:var(--sheet-h);
-  padding:var(--margin);
-  background:var(--paper-color);
-  color:var(--ribbon-color);
-  -webkit-text-fill-color:currentColor;
-  overflow:clip;
-  transform-origin:top left;
-  box-shadow:0 6px 22px rgba(0,0,0,.35);
-  pointer-events:none;          /* never a control: the live sheet keeps every interaction */
-}
-.sheet-copy .sheet-flow{
-  width:var(--text-w);
-  height:var(--text-h);
-  font-family:var(--font-stack);
-  font-size:calc(1in / 6);      /* §10 16px */
-  line-height:var(--row);       /* §10 16px baseline pitch */
-  font-weight:400;
-  font-kerning:none;
-  font-variant-ligatures:none;
-  font-feature-settings:"liga" 0,"clig" 0;
-  letter-spacing:normal;
-  tab-size:1;
-  white-space:pre;              /* the rows arrive already wrapped */
-}
-.sheet-copy .sheet-row{height:var(--row);line-height:var(--row);white-space:pre;margin:0;padding:0}
-/* the colophon, in this sheet's own bottom margin: 1008px is PAPER_MARK_CENTRE in app.js */
-.sheet-copy .sheet-mark{
-  position:absolute;
-  left:50%;
-  top:1008px;
-  margin:0;
-  transform:translate(-50%,-50%);
-  font-family:var(--font-stack);
-  font-size:12.8px;
-  line-height:1;
-  letter-spacing:.02em;
-  color:#000000;
-  -webkit-text-fill-color:#000000;
-  white-space:nowrap;
-}
 .paper{
   width:var(--sheet-w);
   height:var(--sheet-h);
