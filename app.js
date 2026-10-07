@@ -46,7 +46,7 @@
   var DEFAULT_NAME = "Untitled.txt";
   /* reported as <html data-build> so a stale cached script can be told apart from a bug.
      Keep in step with --build in style.css (<html data-css>). */
-  var APP_BUILD = "1.1.2";
+  var APP_BUILD = "1.1.3";
 
   /* ------------------------------------------------------------------- elements */
   var el = {};

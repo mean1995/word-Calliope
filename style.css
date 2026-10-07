@@ -65,7 +65,7 @@
 
   /* build marker, readable from the console as getComputedStyle(document.documentElement)
      .getPropertyValue("--build") so a stale cached stylesheet can be told apart from a bug */
-  --build:1.1.2;
+  --build:1.1.3;
 }
 
 *{box-sizing:border-box}
@@ -162,14 +162,21 @@ html,body{
    flank the visual line the caret is on. All of it stays out of the paper DOM, the TXT,
    Recovery, Print and PDF - @media print hides the whole .stage. Decorative only: no state,
    no input handling, no animation.
-   Badge geometry unchanged (PM ruling §4): 28px high, right edge 80px left of the paper's
-   left edge, top edge = paper visual top + 260px. */
+   Badge geometry (1.1.3, superseding the 1.1.1 geometry of PM ruling §4): 49px high, i.e.
+   1.75x the 1.1.1 value of 28px; right edge still 80px left of the paper's left edge, and a
+   fixed screen position vertically: badge centre = paper visual top + 409.5px.
+   409.5px is half of the paper's visual height at 1440 x 900 / ZOOM FIT (819px), i.e. the
+   place the badge occupies on first opening. It is deliberately a frozen number, not a
+   percentage: nothing moves the badge afterwards - not Document ZOOM (the paper grows, the
+   badge stays), not page turning, not the text. Recorded 2026-10-07. */
 .paper{z-index:1}
 
 /* The badge has exactly two states: visible at its intended size, or hidden (PM ruling §4).
    Visible only while the paper's left-side slot can hold
-     rendered logo width 85.3281px + 80px paper clearance + 24px outer breathing room = 189.33px
+     rendered logo width 149.3241px + 80px paper clearance + 24px outer breathing room = 253.32px
    measured from the viewport's left edge to the paper's visual left edge.
+   (1.1.3: 149.3241 = 85.3281 x 49/28. The larger threshold costs the 125% step on a 1440px
+   viewport, which 28px still held - accepted as the price of the larger badge.)
    .machine-slot expresses that slot as a container so the condition follows the real layout:
    it spans viewport-left-edge -> paper-left-edge and is 0px tall, so it cannot affect layout
    (50cqw = half of .stage's content box, 50% = half of the paper's visual width, +18px is the
@@ -186,13 +193,13 @@ html,body{
 .machine-logo{
   position:absolute;
   right:80px;                     /* logo right edge 80px left of the paper's left edge */
-  top:260px;                      /* paper visual top + 260px */
-  height:28px;                    /* fixed rendered height; width:auto keeps the aspect ratio */
+  top:385px;                      /* 1.1.3 frozen: 409.5px badge centre - 49/2; see the note above */
+  height:49px;                    /* 1.1.3: 1.75x the 1.1.1 28px; width:auto keeps the ratio */
   width:auto;
   display:none;                   /* the approved default state: hidden */
   pointer-events:none;
 }
-@container (min-width:189.33px){
+@container (min-width:253.32px){
   .machine-logo{display:block}
 }
 
