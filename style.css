@@ -65,7 +65,7 @@
 
   /* build marker, readable from the console as getComputedStyle(document.documentElement)
      .getPropertyValue("--build") so a stale cached stylesheet can be told apart from a bug */
-  --build:1.1.3;
+  --build:1.1.5;
 }
 
 *{box-sizing:border-box}

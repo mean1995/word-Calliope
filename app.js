@@ -46,7 +46,7 @@
   var DEFAULT_NAME = "Untitled.txt";
   /* reported as <html data-build> so a stale cached script can be told apart from a bug.
      Keep in step with --build in style.css (<html data-css>). */
-  var APP_BUILD = "1.1.3";
+  var APP_BUILD = "1.1.5";
 
   /* ------------------------------------------------------------------- elements */
   var el = {};
@@ -92,7 +92,8 @@
     autoReturn: true,      /* §16 */
     zoomIndex: 0,
     paperIndex: 0,
-    ribbonIndex: 0
+    ribbonIndex: 0,
+    pendingCaret: null     /* §P0 selection held while a control owns focus; memory only */
   };
 
   function document_text() { return el.editor ? el.editor.value : ""; }
@@ -291,6 +292,7 @@
     relayout();
     setCaret(0);
     state.sheet = 0;
+    state.pendingCaret = null;   /* §P0 a rebuilt editor has no earlier selection to put back */
     positionEditor();
     syncInk(true);
     try { ta.focus({ preventScroll: true }); } catch (e) { ta.focus(); }
@@ -370,9 +372,28 @@
     ta.addEventListener("input", onInput);
     ta.addEventListener("click", onCaretMoved);
     ta.addEventListener("keyup", onCaretMoved);
-    ta.addEventListener("focus", onCaretMoved);
+    /* §P0 Safari resets the selection to 0 when a focused textarea is refocused after a
+       button took focus away, and it does so BEFORE the focus event is dispatched (observed:
+       blur = 26, click handler start = 26, focus = 0). The selection therefore has to be
+       captured while the editor still owns it - at blur, where it is still correct - and put
+       back on the way in, before anything reads selectionStart. Native behaviours are left
+       untouched: nothing here intercepts typing, IME, undo, paste or navigation, and a
+       programmatic or user focus without a preceding blur is not restored at all. */
+    ta.addEventListener("focus", function (e) {
+      if (!e.isTrusted) {
+        /* our own focus() fired a second, untrusted focus event: not a user gesture. It must
+           not re-run the sheet sync on selection values we have not restored yet. */
+        restoreCaret();
+        return;
+      }
+      restoreCaret();
+      onCaretMoved();
+    });
     ta.addEventListener("select", onCaretMoved);
-    ta.addEventListener("blur", onCaretMoved);
+    ta.addEventListener("blur", function () {
+      captureCaret();
+      onCaretMoved();
+    });
     ta.addEventListener("scroll", resetScroll, true);
     /* §18 composition is never intercepted; these handlers only keep the mirror layer in step */
     ta.addEventListener("compositionstart", function () { state.composing = true; syncInk(true); });
@@ -400,6 +421,40 @@
     if (offset > n) offset = n;
     if (offset < 0) offset = 0;
     try { el.editor.setSelectionRange(offset, offset); } catch (e) {}
+  }
+
+  /* §P0 the editing position survives a trip through the controls. This only ever puts back
+     what the user's own selection was when the editor lost focus: it never invents a position,
+     never moves the caret to the document start or end, and never touches text, undo or IME.
+     Held in memory only - not document state, never stored, printed or exported. */
+  function captureCaret() {
+    var ta = el.editor;
+    if (!ta) { state.pendingCaret = null; return; }
+    var start = ta.selectionStart, end = ta.selectionEnd;
+    if (start === null || start === undefined) { state.pendingCaret = null; return; }
+    state.pendingCaret = {
+      start: start,
+      end: (end === null || end === undefined) ? start : end,
+      direction: ta.selectionDirection || "none",
+      value: ta.value,
+      dirty: isDirty()
+    };
+  }
+
+  function restoreCaret() {
+    var ta = el.editor, p = state.pendingCaret;
+    if (!ta || !p) return false;
+    state.pendingCaret = null;                    /* one shot: never fights later input */
+    /* the selection is only put back when the platform actually lost it; an engine that
+       keeps it correctly (Chromium) is left completely alone. */
+    if (ta.selectionStart !== 0 || ta.selectionEnd !== 0) return false;
+    if (ta.value !== p.value) return false;       /* document changed underneath: do not guess */
+    if (p.dirty !== isDirty()) return false;      /* a programmatic load happened in between */
+    var n = ta.value.length;
+    var s = p.start > n ? n : (p.start < 0 ? 0 : p.start);
+    var e = p.end > n ? n : (p.end < 0 ? 0 : p.end);
+    try { ta.setSelectionRange(s, e, p.direction); } catch (err) { return false; }
+    return true;
   }
 
   function resetScroll() {
