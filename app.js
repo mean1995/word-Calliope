@@ -46,7 +46,7 @@
   var DEFAULT_NAME = "Untitled.txt";
   /* reported as <html data-build> so a stale cached script can be told apart from a bug.
      Keep in step with --build in style.css (<html data-css>). */
-  var APP_BUILD = "1.1.5";
+  var APP_BUILD = "1.1.5.1";
 
   /* ------------------------------------------------------------------- elements */
   var el = {};
@@ -79,6 +79,7 @@
     el.btnSound = document.getElementById("btn-sound");
     el.btnPaper = document.getElementById("btn-paper");
     el.btnRibbon = document.getElementById("btn-ribbon");
+    el.btnHelp = document.getElementById("btn-help");
   }
 
   /* ---------------------------------------------------------------------- state */
@@ -93,7 +94,8 @@
     zoomIndex: 0,
     paperIndex: 0,
     ribbonIndex: 0,
-    pendingCaret: null     /* §P0 selection held while a control owns focus; memory only */
+    pendingCaret: null,    /* §P0 selection held while a control owns focus; memory only */
+    help: false            /* §H HELP sheet is showing: the document is closed for editing */
   };
 
   function document_text() { return el.editor ? el.editor.value : ""; }
@@ -297,6 +299,162 @@
     syncInk(true);
     try { ta.focus({ preventScroll: true }); } catch (e) { ta.focus(); }
   }
+
+  /* ================================================================ H. HELP sheet
+     A read-only sheet of paper inside the same .sheet-window: the machine shows its own
+     introduction. Three deliberate separations:
+       - it is STATIC DOM, not the editor: no textarea, so it cannot be typed into at all;
+       - user-select:none, so it cannot be selected or copied;
+       - it lives inside .stage, which print hides, so it can never reach Print / EXPORT PDF.
+     The text is broken to the 78-unit grid at build time and rendered with white-space:pre,
+     so the sheet never re-flows: Chromium and Safari wrap at exactly the same places and the
+     48-row measure is a property of the copy, not of the engine.
+     Colour comes from the editor's own palette (§09): the title and the Pessoa lines take the
+     BLUE-BLACK ribbon value, everything else the BLACK ribbon value. No new colour is invented. */
+  var HELP_SHEET_HTML = "";
+
+  function buildHelpSheet() {
+    if (!el.window || el.helpSheet) return;
+    var sheet = document.createElement("div");
+    sheet.className = "help-sheet";
+    sheet.setAttribute("aria-hidden", "true");     /* chrome, not document content */
+    var pre = document.createElement("pre");
+    pre.className = "help-body";
+    pre.innerHTML = HELP_SHEET_HTML;
+    sheet.appendChild(pre);
+    el.window.appendChild(sheet);
+    el.helpSheet = sheet;
+  }
+
+  /* HELPSHEET:BEGIN */
+  /* The HELP copy, exactly as VIC supplied it (revised 2026-10-08 22:45). The "（蓝色）"
+     notes in the manuscript are LAYOUT INSTRUCTIONS and are deliberately NOT part of the
+     text. Each entry is ONE ROW of the 78-unit grid: the breaks below are GRID breaks, not
+     paragraph breaks (an empty entry is a paragraph gap), and white-space:pre keeps them
+     exactly as written. 45 rows of the 54 a sheet holds.
+     A row carrying a marked word is a single entry built from several <span>s - never two
+     entries, or the grid would spend two rows on one line of text. */
+  HELP_SHEET_HTML = [
+    "<span class=\"h-blue\">Word Καλλιόπη</span>",
+    "<span class=\"h-blue\">一台来自过去的未来写作机器</span>",
+    "<span></span>",
+    "<span>我始终喜欢打字机，它是如此纯粹的写作工具：纸张、字键、色带，除此之外，几乎没有</span>",
+    "<span>什么值得分心。</span>",
+    "<span></span>",
+    "<span>文字一旦落在纸上，就很难像在屏幕上那样随意修改。</span>",
+    "<span>于是，人必须更加认真地思考，斟酌每一个字、每一句话，在敲下字键之前，想清楚自己</span>",
+    "<span>究竟要写些什么。</span>",
+    "<span></span>",
+    "<span>写作因此回到最简单的模样：一个人，一张纸，和自己的思考。</span>",
+    "<span></span>",
+    "<span>另一个灵感来自 IBM</span>",
+    "<span>从 Selectric 精巧的球形打印头，到 1980 年代的 IBM Electronic Typewriters，IBM </span>",
+    "<span>曾经将机械工程与电子技术结合得如此精妙。1980 年代，个人电脑与文字处理软件正在</span>",
+    "<span>改变人们的写作方式，而传统打字机也逐渐走向历史的黄昏。</span>",
+    "<span></span>",
+    "<span>那或许是一个时代最后的辉煌，也是它最美的告别。</span>",
+    "<span></span>",
+    "<span>我想让那些早已退场的字键在赛博格的世界，再次敲响，让那个时代专注而郑重的书写仪</span>",
+    "<span>式，继续留在今天。</span>",
+    "<span></span>",
+    "<span>这就是 </span><span class=\"h-blue\">Word Καλλιόπη</span>",
+    "<span></span>",
+    "<span class=\"h-blue\">Word</span><span>，因为这里只需要写字，</span>",
+    "<span class=\"h-blue\">Καλλιόπη</span><span>（Calliope），来自希腊神话，文字创作的缪斯。</span>",
+    "<span></span>",
+    "<span>Word Καλλιόπη，让任何需要安静专注的思考与写作发生。它保留现代电脑的便利：中文</span>",
+    "<span>输入、复制、粘贴、撤销，以及 TXT 文件的打开与保存、PDF 输出。</span>",
+    "<span></span>",
+    "<span>与此同时，它又让文字重新回到纸张：US Letter、固定页边距、12 CPI、6 LPI。你可以</span>",
+    "<span>选择纸张与色带的颜色，调整缩放比例，打开或关闭 AUTO RETURN，也可以让键盘、回车</span>",
+    "<span>与换纸重新发出声音。</span>",
+    "<span></span>",
+    "<span>那些精确的尺寸、字距与行距，只是为了忠实还原那个时代的书写经验：Modern input. </span>",
+    "<span>Typewriter output. 但 Καλλιόπη 并不真的怀旧，它更接近一种 Retro-Futurism：不是</span>",
+    "<span>把今天伪装成过去，而是假设四十年前的人曾经想象过这样一台未来写作机器。</span>",
+    "<span></span>",
+    "<span>Fernando Pessoa 写过：</span>",
+    "<span></span>",
+    "<span class=\"h-blue\">「我的心略大于整个宇宙」</span>",
+    "<span class=\"h-blue\">“And my heart is a little larger than the entire universe.”</span>",
+    "<span></span>",
+    "<span>这大概也是 Καλλιόπη 想保留的东西：纸张有边界，文字有行数，机器极其有限；而坐在</span>",
+    "<span>它前面的人，“一颗心”也可以略大于整个宇宙。</span>"
+  ].join("\n");
+  /* HELPSHEET:END */
+
+  function applyHelpMode(on) {
+    if (!el.editor) return;
+    if (on) {
+      /* remember the real editing position before the control is taken away (§P0 gives the
+         capture; here we only make sure it happens before the selection can be lost) */
+      captureCaret();
+      el.editor.disabled = true;                   /* no typing, no selection, no IME, no drop */
+      el.editor.setAttribute("tabindex", "-1");
+      setDocumentControlsEnabled(false);           /* the document controls read as unavailable */
+      setRailsHidden(true);                        /* no editing position to mark on this sheet */
+      el.flow.style.visibility = "hidden";         /* the ink layer is chrome: hide it with the text */
+      if (el.helpSheet) el.helpSheet.classList.add("is-open");
+      el.btnHelp.textContent = "HELP ON";
+      /* nothing may be recorded while the editor is closed, and no sound may be triggered
+         by the click that hid it (§25: audio is feedback, never logic) */
+      if (recoveryTimer) { window.clearInterval(recoveryTimer); recoveryTimer = null; }
+    } else {
+      if (el.helpSheet) el.helpSheet.classList.remove("is-open");
+      el.flow.style.visibility = "";
+      el.editor.disabled = false;
+      el.editor.removeAttribute("tabindex");
+      setDocumentControlsEnabled(true);
+      setRailsHidden(false);                       /* the editing marks come back with the text */
+      el.btnHelp.textContent = "HELP";
+      try { el.editor.focus({ preventScroll: true }); } catch (e) { el.editor.focus(); }
+      scheduleRecoveryCheck();
+    }
+  }
+
+  /* The document controls, as a set. AUTO RETURN has to stay disabled afterwards: it is
+     disabled for good by syncControls() because OFF is not offered, so restoring it blindly
+     would change product behaviour. Remembering that one flag is cheaper than re-deriving it.
+     §H ZOOM is deliberately NOT in this set: while HELP is up it stays live, because the sheet
+     has to be readable - if the help text is too small the reader must be able to scale it. */
+  var returnDisabledByDesign = false;
+
+  function setDocumentControlsEnabled(yes) {
+    if (!yes) returnDisabledByDesign = el.btnReturn ? el.btnReturn.disabled === true : false;
+    [el.btnNew, el.btnOpen, el.btnSave, el.btnPdf,
+     el.btnReturn, el.btnSound, el.btnPaper, el.btnRibbon].forEach(function (b) {
+      if (!b) return;
+      if (yes) b.disabled = (b === el.btnReturn) ? returnDisabledByDesign : false;
+      else b.disabled = true;
+    });
+    if (!yes) el.btnZoom.disabled = false;       /* the one control that keeps working (§H) */
+  }
+
+  /* §H the two rail triangles belong to the editing position; while the HELP sheet is up there
+     is no editing position to mark, so they are cleared. applyZoom() would put them straight
+     back (it redraws them for the new scale), so it is told to leave that alone in this state. */
+  var helpHidesRails = false;
+
+  function setRailsHidden(hidden) {
+    helpHidesRails = hidden;
+    if (!hidden) { updateRailMarks(); return; }
+    if (el.railLeft) el.railLeft.style.display = "none";
+    if (el.railRight) el.railRight.style.display = "none";
+    if (el.typeLine) el.typeLine.style.display = "none";
+    [el.typeLineRight, el.typeLineUp2, el.typeLineRightUp2].forEach(function (b) {
+      if (b) b.style.display = "none";
+    });
+    if (el.caretMask) el.caretMask.style.display = "none";
+  }
+
+  function toggleHelp() {
+    state.help = !state.help;
+    applyHelpMode(state.help);
+  }
+
+  /* everything except HELP and ZOOM is inert while the sheet is up: guarded at the event layer,
+     not merely greyed out, so no handler runs and nothing can flip a switch behind the sheet */
+  function helpBlocks() { return state.help === true; }
 
   /* ---- ribbon runs ---------------------------------------------------------------------
      Product decision (§48): switching the ribbon affects only the characters typed after the
@@ -704,6 +862,9 @@
   }
 
   function onKeyDown(e) {
+    /* §H the editor is disabled while HELP is up, so this listener should not fire; it is
+       kept as the second net so that no keystroke can ever reach the document in that state. */
+    if (state.help) return;
     if (e.defaultPrevented) return;
 
     /* §23 a keyboard action triggers the typing sound, including while a Chinese
@@ -776,9 +937,11 @@
     el.stageInner.style.height = (PAPER_H * z) + "px";
     el.btnZoom.textContent = "ZOOM " + ZOOM_STEPS[state.zoomIndex].label;
     /* 1.1.1: the rail marks keep their 4x8px size but must follow the paper's new scale */
-    updateRailMarks();
+    if (!helpHidesRails) {
+      updateRailMarks();
+      updateTypeLine();
+    }
     updatePaperMark();
-    updateTypeLine();
   }
 
   function cycleZoom() {
@@ -1269,6 +1432,9 @@
     }
 
     function record() {
+      /* §H while the HELP sheet is up the editor is disabled, so document_text() is "":
+         writing that would replace the user's draft with an empty one. Refuse instead. */
+      if (state.help || !el.editor) return null;
       return { id: ID, v: 1, text: document_text(), name: state.name, ts: Date.now() };
     }
 
@@ -1295,6 +1461,7 @@
       write: function () {
         if (!isDirty()) return;
         var rec = record();
+        if (!rec) return;              /* §H the editor is closed (HELP): never store an empty draft */
         memory = rec;
         if (mode === "idb") idbPut(rec);
         /* localStorage is written as well: it is synchronous, so the newest draft
@@ -1306,6 +1473,7 @@
       writeSync: function () {
         if (!isDirty()) return;
         var rec = record();
+        if (!rec) return;              /* §H same guard on the synchronous path (pagehide / hidden tab) */
         memory = rec;
         lsPut(rec);
         idbPut(rec);
@@ -1335,38 +1503,59 @@
   /* ============================================================ 10. wiring */
 
   function bindControls() {
-    el.btnNew.addEventListener("click", newDocument);
-    el.btnOpen.addEventListener("click", openDocument);
-    el.btnSave.addEventListener("click", saveDocument);
-    el.btnPdf.addEventListener("click", exportPdf);
+    /* §H while the HELP sheet is up the document controls are inert - all except ZOOM, which
+       stays live so the sheet can be scaled for reading. The guard is at the event layer rather
+       than only in the disabled attribute, so no handler body runs at all: nothing can change a
+       setting, load a file or make a sound behind the sheet. */
+    function on(btn, fn) {
+      btn.addEventListener("click", function (e) {
+        if (helpBlocks()) { e.preventDefault(); return; }
+        fn(e);
+      });
+    }
+
+    on(el.btnNew, newDocument);
+    on(el.btnOpen, openDocument);
+    on(el.btnSave, saveDocument);
+    on(el.btnPdf, exportPdf);
+    /* §H ZOOM is bound directly, NOT through on(): it keeps working while the HELP sheet is up,
+       so a reader who finds the sheet too small can scale it. */
     el.btnZoom.addEventListener("click", cycleZoom);
 
-    el.btnReturn.addEventListener("click", function () {
+    on(el.btnReturn, function () {
       state.autoReturn = !state.autoReturn;
       el.btnReturn.textContent = "AUTO RETURN " + (state.autoReturn ? "ON" : "OFF");
       if (el.editor) el.editor.focus();
     });
-    el.btnSound.addEventListener("click", function () {
+    on(el.btnSound, function () {
       audio.on = !audio.on;
       el.btnSound.textContent = "SOUND " + (audio.on ? "ON" : "OFF");
       if (el.editor) el.editor.focus();
     });
-    el.btnPaper.addEventListener("click", function () {
+    on(el.btnPaper, function () {
       state.paperIndex = (state.paperIndex + 1) % PAPER_COLORS.length;
       applyColors();
       if (el.editor) el.editor.focus();
     });
-    el.btnRibbon.addEventListener("click", function () {
+    on(el.btnRibbon, function () {
       state.ribbonIndex = (state.ribbonIndex + 1) % RIBBON_COLORS.length;
       applyColors();
       ribbonSwitch(state.ribbonIndex);   /* only what is typed next takes the new ink (§48) */
       if (el.editor) el.editor.focus();
     });
 
-    el.fileInput.addEventListener("change", onFileChosen);
+    /* §H HELP: always live - it is the only way out of the help sheet, besides ESC.
+       Nothing else is touched: no sound, no recovery write, no colour change. */
+    el.btnHelp.addEventListener("click", toggleHelp);
+
+    el.fileInput.addEventListener("change", function (e) {
+      if (helpBlocks()) { e.target.value = ""; return; }
+      onFileChosen(e);
+    });
 
     /* clicking the paper (but not the text) puts the caret back in the document */
     el.paper.addEventListener("mousedown", function (ev) {
+      if (helpBlocks()) return;                  /* §H the sheet owns this paper now */
       if (ev.target === el.editor) return;
       window.setTimeout(function () { if (el.editor) el.editor.focus(); }, 0);
     });
@@ -1387,6 +1576,16 @@
       window.visualViewport.addEventListener("resize", onViewportChange);
       window.visualViewport.addEventListener("scroll", onViewportChange);
     }
+
+    /* §H ESC closes the help sheet. Capture phase, because focus is not inside the editor
+       while the sheet is up. It is the only key this listener accepts, and it does nothing
+       at all when the sheet is not showing. */
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape" || !state.help) return;
+      e.preventDefault();
+      state.help = false;
+      applyHelpMode(false);
+    }, true);
 
     /* §42 unsaved work: browser-native unload confirmation where available */
     window.addEventListener("beforeunload", function (e) {
@@ -1439,6 +1638,7 @@
 
   function start() {
     cacheElements();
+    buildHelpSheet();          /* §H build the read-only sheet once, into the existing paper */
     /* build markers: <html data-build> from this script, <html data-css> from style.css */
     var cssBuild = "";
     try {

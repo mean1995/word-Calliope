@@ -65,7 +65,7 @@
 
   /* build marker, readable from the console as getComputedStyle(document.documentElement)
      .getPropertyValue("--build") so a stale cached stylesheet can be told apart from a bug */
-  --build:1.1.5;
+  --build:1.1.5.1;
 }
 
 *{box-sizing:border-box}
@@ -124,6 +124,14 @@ html,body{
 .bar button:hover{background:#3c3933}
 .bar button:active{background:#26241f}
 .bar button:focus-visible{outline:2px solid #8a8578; outline-offset:1px}
+/* §H while the HELP sheet is up the document controls are disabled: they must also READ as
+   unavailable, otherwise the sheet looks like it simply ignored the click. HELP itself stays
+   live - it is the way back - and so does ZOOM, which is the only control that keeps working
+   on the sheet (:not(#btn-zoom) keeps it at full contrast). The PAPER / RIBBON colour stripes
+   are dimmed with the rest, and no hover state is offered on a control that cannot respond. */
+.bar button:disabled:not(#btn-zoom){color:#6b675d; background:#26241f; cursor:default}
+.bar button:disabled:not(#btn-zoom):hover{background:#26241f}
+.bar button:disabled:not(#btn-zoom):focus-visible{outline:none}
 
 /* The two state buttons carry a live colour stripe so the armed PAPER / RIBBON is visible at a
    glance. Why (2026-10-06, product-side report): pressing RIBBON changes nothing on the paper -
@@ -398,6 +406,54 @@ html,body{
 }
 /* selection tint stays neutral so it reads the same on either paper / ribbon */
 .editor::selection{background:rgba(38,37,34,.22)}
+
+/* ------------------------------------------------------------------ HELP sheet (§H)
+   1.1.5.1: the machine's own introduction, shown on the same sheet of paper.
+   It is NOT the editor: static DOM, so it cannot be typed into. The text is pre-broken to the
+   78-unit grid and rendered with white-space:pre, so neither engine re-wraps it - the sheet
+   looks identical in Chromium and Safari, and the 48-row measure is a property of the copy.
+   Colour is taken from the editor's own palette (§09): BLUE-BLACK for the opening and the
+   Pessoa lines, BLACK for the body. No new colour is introduced.
+   It sits above the (disabled) editor and swallows pointer events, so the sheet cannot be
+   disturbed while it is up. user-select:none => it cannot be selected or copied. It lives
+   inside .stage, which the print rules hide, so it can never reach Print or EXPORT PDF. */
+.help-sheet{
+  display:none;
+  position:absolute;
+  left:0;
+  top:0;
+  width:var(--text-w);
+  height:calc(var(--text-h) + var(--descender-ink));
+  z-index:2;
+  background:var(--paper-color);
+  user-select:none;
+  -webkit-user-select:none;
+  -moz-user-select:none;
+  cursor:default;
+  pointer-events:auto;
+}
+.help-sheet.is-open{display:block}
+.help-body{
+  margin:0;
+  padding:0;
+  font-family:var(--font-stack);
+  font-size:calc(1in / 6);            /* §10 16px, the same cell as the document */
+  line-height:var(--row);             /* §10 16px pitch  */
+  font-weight:400;
+  font-kerning:none;
+  font-variant-ligatures:none;
+  font-feature-settings:"liga" 0,"clig" 0;
+  letter-spacing:normal;              /* trap: never compensate advance */
+  white-space:pre;                    /* the breaks ARE the grid: no re-wrap, any engine */
+  overflow-wrap:normal;
+  word-break:normal;
+  line-break:auto;
+  tab-size:1;
+  -webkit-text-size-adjust:100%;
+  box-sizing:border-box;
+  color:#262522;                      /* RIBBON_COLORS[0].value  - kept in step by hand */
+}
+.help-body .h-blue{color:#085BB4}     /* RIBBON_COLORS[1].value (BLUE-BLACK, §09 locked) */
 
 /* mirror layer: same box and typography, glyphs painted per ribbon run */
 .editor-ink{
