@@ -65,7 +65,7 @@
 
   /* build marker, readable from the console as getComputedStyle(document.documentElement)
      .getPropertyValue("--build") so a stale cached stylesheet can be told apart from a bug */
-  --build:1.1.5.1;
+  --build:1.1.5.2;
 }
 
 *{box-sizing:border-box}
@@ -408,7 +408,7 @@ html,body{
 .editor::selection{background:rgba(38,37,34,.22)}
 
 /* ------------------------------------------------------------------ HELP sheet (§H)
-   1.1.5.1: the machine's own introduction, shown on the same sheet of paper.
+   1.1.5.2: the machine's own introduction, shown on the same sheet of paper.
    It is NOT the editor: static DOM, so it cannot be typed into. The text is pre-broken to the
    78-unit grid and rendered with white-space:pre, so neither engine re-wraps it - the sheet
    looks identical in Chromium and Safari, and the 48-row measure is a property of the copy.
