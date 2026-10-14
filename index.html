@@ -44,17 +44,37 @@
     <div class="machine-slot" aria-hidden="true">
       <img class="machine-logo" src="logo.svg" alt="">
     </div>
-    <div class="paper" id="paper">
-      <div class="sheet-window" id="sheet-window"><!-- editor built by app.js --></div>
-      <!-- 1.1.6.1 hooks: the print head and the page counter exist, are positioned by contract
-           variables (UI-Delivery-1.1.6-r1/coordinates.json, r1 candidate values) and carry the
-           live state as attributes and text, but they are NOT PAINTED until the UI-integration
-           build sets data-ui-art="ready" on <html>. No artwork, no glyphs, no interaction:
-           pointer-events:none, aria-hidden, and hidden by @media print with the rest of .stage.
-           Both live inside .paper, which is one continuous editing context's window - they are
-           never document content, so TXT / SAVE / Recovery / Print / PDF cannot see them. -->
-      <div class="print-head" id="print-head" aria-hidden="true"></div>
-      <div class="page-counter" id="page-counter" aria-hidden="true">01/01</div>
+    <!-- 1.1.6.1 feed (VIC ruling): THE PAPER MOVES, THE MACHINE DOES NOT (P04). The sheet is
+         translated up as the writing advances and .paper-clip is the machine's throat: it
+         shows only the part of the sheet that has come out, exactly like paper leaving a
+         typewriter. The clip is the scaled frame, so a document ZOOM still scales machine and
+         paper together. Whatever is below the throat belongs to the machine body (a later
+         build) and is simply not drawn here. -->
+    <div class="paper-clip" id="paper-clip">
+      <div class="paper" id="paper">
+        <div class="sheet-window" id="sheet-window"><!-- editor built by app.js --></div>
+        <!-- Colophon centred in the paper's bottom margin. Its place is ON THE SHEET, so it now
+             lives inside .paper: it travels with the paper and the throat cuts it off like
+             everything else below the print line. That is also why it is no longer multiplied by
+             the zoom - the scaled throat does that once. Romanised on purpose: the CJK slot's
+             Greek capitals are drawn ~16% shorter than its Latin capitals and float above the
+             baseline (measured 2026-10-06), which read as an uneven line; the CJK slot is kept
+             for its dot-matrix character. P05 (keep or cancel the paper colophon) is still open,
+             and at the r1 throat this mark spends the whole run inside the machine. -->
+        <div class="paper-mark" id="paper-mark" aria-hidden="true">WORD KALLIOPE BY VIC</div>
+      </div>
+    </div>
+    <!-- 1.1.6.1 hooks: the print head and the page counter are MACHINE parts, so they do not
+         move with the paper. They are positioned by contract variables
+         (UI-Delivery-1.1.6-r1/coordinates.json, r1 candidate values) and carry live state as
+         attributes and text, but they are NOT PAINTED until the UI-integration build sets
+         data-ui-art="ready" on <html>. No artwork, no glyphs, no interaction: pointer-events
+         none, aria-hidden, and hidden by @media print with the rest of .stage. They sit in
+         .stage but outside the editing window, so they are never document content: TXT, SAVE,
+         Recovery, Print and PDF cannot see them. -->
+    <div class="machine-fixed" id="machine-fixed" aria-hidden="true">
+      <div class="print-head" id="print-head"></div>
+      <div class="page-counter" id="page-counter">01/01</div>
     </div>
     <div class="rail-mark rail-mark-left" id="rail-left" aria-hidden="true"></div>
     <div class="rail-mark rail-mark-right" id="rail-right" aria-hidden="true"></div>
@@ -71,11 +91,6 @@
     <div class="type-line type-line-right" id="type-line-right-up2" aria-hidden="true"></div>
     <!-- hides the native blinking caret: paper-coloured, above the paper but below the rail -->
     <div class="caret-mask" id="caret-mask" aria-hidden="true"></div>
-    <!-- colophon centred in the paper's bottom margin; screen-only, print hides .stage.
-         Romanised on purpose: the CJK slot's Greek capitals are drawn ~16% shorter than its
-         Latin capitals and float above the baseline (measured 2026-10-06), which read as an
-         uneven line. The CJK slot is kept for its dot-matrix character. -->
-    <div class="paper-mark" id="paper-mark" aria-hidden="true">WORD KALLIOPE BY VIC</div>
   </div>
 </div>
 

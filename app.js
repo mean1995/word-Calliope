@@ -65,25 +65,25 @@
   var Y5_AA_IS_TOP_VISIBLE_ROW = true;        /* Y-5: AA = the page of the top visible row */
   var Y6_SELECTION_REPLACE_IS_MECHANICAL = false; /* Y-6: no - a replace is not mechanical */
 
-  /* --------------------------------------- 1.1.6.1 paper feed rest position (VIC 2026-10-15)
-     VIC ruled the feed model directly (option B): the paper scrolls up continuously and the
-     line being written stays on the print line. The print line's row comes from the r1
-     candidate contract - printLineY 956 inside the writing area that starts at 96 with a 16px
-     pitch: (956 - 96) / 16 = 53.75, i.e. the 54th row, the last one of the window. So the top
-     row of the window is always (caret row - 53), and while the document is shorter than that
-     the view goes NEGATIVE: the rows above the first line are the blank paper the sheet has
-     not fed past yet. Two consequences, both deliberate and recorded in the notes:
-       * the whole sheet is no longer visible at once - this is the model VIC chose;
-       * the area above the type-in point is blank paper until the machine artwork covers it
-         (the machine body, platen and slot are a later build).
-     FEED_ANCHOR_ROW is the single number the Gate 2 registration will replace; if the print
-     line moves, this constant moves and nothing else. */
-  var FEED_ANCHOR_ROW = 53;                   /* printLineY 956 -> row 53 of 54 */
+  /* ---------------------------------------- 1.1.6.1 paper feed model (VIC 2026-10-15)
+     THE PAPER MOVES, THE MACHINE DOES NOT (P04). The sheet is a physical object that comes out of
+     the machine one line at a time; the machine's throat (.paper-clip) shows only the part that
+     has come out. That is why the whole sheet is NOT visible: at the first line of a sheet you
+     see the one-inch top margin and the line being written, and by the last line the whole writing
+     area has come out - after which a new sheet starts.
 
-  /* Set to true to keep the 1.1.5.1 look for a document shorter than one sheet (view stuck at
-     the sheet top, no scrolling until row 54). It is false because VIC asked for the scrolling
-     paper; it exists so the alternative is one line away if the visual is rejected. */
-  var FEED_CLAMP_AT_SHEET_TOP = false;
+     Geometry, all from the r1 candidate contract:
+       * print line printLineY 956, writing area starts at 96 with a 16px pitch ->
+         FEED_ANCHOR_ROW = (956 - 96) / 16 = 53.75 -> the row the print line sits in, row 53;
+       * that row's top edge is at 96 + 53 * 16 = 944 in the throat, so the row at the print line
+         always lands at PRINT_LINE_TOP_PX;
+       * the sheet's own translate is (FEED_ANCHOR_ROW - feed rows) * ROW_PX: 848px at the first
+         row of a sheet, 0 at the last.
+
+     FEED_ANCHOR_ROW and --paper-throat are the two numbers the Gate 2 registration will replace;
+     they must move together. */
+  var FEED_ANCHOR_ROW = 53;                                   /* printLineY 956 -> row 53 of 54 */
+  var PRINT_LINE_TOP_PX = 96 + FEED_ANCHOR_ROW * 16;          /* 944: the print-line row's top */
 
   /* R4 §4.2: the input types that count as typewriter-class input. Everything else
      (insertFromPaste, insertFromDrop, historyUndo, historyRedo, delete*, ...) is modern
@@ -99,6 +99,8 @@
     el.bar = document.getElementById("bar");
     el.stage = document.getElementById("stage");
     el.stageInner = document.getElementById("stage-inner");
+    el.paperClip = document.getElementById("paper-clip");
+    el.machineFixed = document.getElementById("machine-fixed");
     el.paper = document.getElementById("paper");
     el.window = document.getElementById("sheet-window");
     /* 1.1.1 rail marks: read-only presentation markers flanking the caret's visual line */
@@ -717,18 +719,15 @@
 
   function totalRows() { return state.layout ? state.layout.totalRows : 0; }
 
+  /* The view is (sheet, how far that sheet has fed). viewRow() is the DOCUMENT ROW currently
+     standing at the print line - the one row the machine is printing on. It cannot go before
+     the first row and cannot feed past the last one. */
   function maxViewRow() {
     var t = totalRows();
-    return t > ROWS_PER_SHEET ? t - ROWS_PER_SHEET : 0;
+    return t > 1 ? t - 1 : 0;
   }
 
-  /* The lowest row the window may show. Negative means blank paper above the first line: with
-     the feed model VIC chose, the line being written sits on the print line (window row 53),
-     so an empty or short document legitimately shows the window 53 rows above row 0.
-     FEED_CLAMP_AT_SHEET_TOP restores the old floor of 0. */
-  function minViewRow() {
-    return FEED_CLAMP_AT_SHEET_TOP ? 0 : -FEED_ANCHOR_ROW;
-  }
+  function minViewRow() { return 0; }
 
   function viewRow() { return state.viewSheet * ROWS_PER_SHEET + state.viewIntraRows; }
 
@@ -762,19 +761,19 @@
     return moved;
   }
 
-  /* The normal view: the line being written sits ON the print line (VIC's feed model, option B).
-     The window's top row is therefore (caret row - FEED_ANCHOR_ROW); setViewRow clamps it into
-     the allowed range, so a document shorter than the anchor legitimately shows blank paper
-     above its first line, and the last full sheet stops the view at the end of a long one.
+  /* The normal view: the line being written stands at the print line, on the sheet that row
+     belongs to. Because the PAPER moves (not the text), this is simply "the caret's row is the
+     row at the print line": viewRow = caret row. How far the sheet has come out of the machine
+     falls out of the pair, and positionEditor() turns it into the translate.
      Following the caret also ends the browsing state (P06).
 
-     [1.1.5.1 -> 1.1.6.1] This replaced "the caret's page, page-aligned". That older rule is what
-     made the sheet sit still and only turn at row 54; with the anchor the paper scrolls one row
-     per line from the first line on, which is what "纸张向上进给相应行距" looks like when the
-     whole sheet is a window rather than a fixed picture. */
+     [1.1.5.1 -> 1.1.6.1] The old rule was "the caret's page, page-aligned": the sheet sat still
+     and only turned at row 54. Now the sheet advances one line per line from the very first
+     line, and a new sheet starts when the old one is full - which is what "纸张向上进给相应
+     行距" looks like when the paper is a sheet coming out of a machine. */
   function viewToCaret() {
     var info = caretInfo();
-    var moved = setViewRow(info.row - FEED_ANCHOR_ROW);
+    var moved = setViewRow(info.row);
     state.viewBrowsing = false;
     return moved;
   }
@@ -825,8 +824,8 @@
      first keystroke after a browse. */
   function inputMoment() {
     browseClear();
-    /* the same anchor viewToCaret() uses: the caret's line goes back onto the print line */
-    var base = caretInfo().row - FEED_ANCHOR_ROW;
+    /* the same rule viewToCaret() uses: the caret's row goes back to the print line */
+    var base = caretInfo().row;
     if (viewRow() !== base) setViewRow(base);
     /* the browse session ends here even when the clamp means the view cannot move: from this
        keystroke on, AA is the page being written on again (R4 §5.3) */
@@ -889,7 +888,10 @@
   function placeCaretFromPaperPoint(clientX, clientY) {
     if (!el.editor || !state.layout) return false;
     var p = documentPointFromClient(clientX, clientY);
-    var row = Math.floor((p.y - RAIL_MARGIN_PX) / ROW_PX) + viewRow();
+    /* The point is measured ON THE SHEET, and the sheet moves: its own row index plus the
+       sheet's first document row gives the document row. */
+    var pageStartHere = state.viewSheet * ROWS_PER_SHEET;
+    var row = pageStartHere + Math.floor((p.y - RAIL_MARGIN_PX) / ROW_PX);
     var colUnits = Math.floor((p.x - RAIL_MARGIN_PX) / RAIL_UNIT_PX);
     if (colUnits < 0) colUnits = 0;
     if (colUnits > UNITS_PER_ROW) colUnits = UNITS_PER_ROW;
@@ -898,10 +900,30 @@
     return true;
   }
 
+  /* The ONE place the paper and the text are placed. Two independent quantities:
+       * which sheet's text the window holds -> the flow's page offset (page-aligned, so the
+         sheet carries its own 54 rows: the sheet is a physical object, not a sliding window);
+       * how far that sheet has come out     -> the paper's own translate.
+     Nothing else moves the paper (P04: machine fixed, paper moves). */
   function positionEditor() {
     if (!el.flow) return;
-    el.flow.style.top = (-(viewRow() * ROW_PX)) + "px";
+    var pageStart = state.viewSheet * ROWS_PER_SHEET;
+    el.flow.style.top = (-(pageStart * ROW_PX)) + "px";
+    applyPaperFeed(0);
     resetScroll();
+  }
+
+  /* How far the sheet has come out of the machine, in document px. When the row standing at the
+     print line is row k of its sheet, the sheet's top edge is (FEED_ANCHOR_ROW - k) lines above
+     the print line: 53 lines at the first row (the machine still holds all but the top margin)
+     and 0 at the last row (the whole writing area is out). */
+  function paperFeedPx(extraRows) {
+    return (FEED_ANCHOR_ROW - state.viewIntraRows - (extraRows || 0)) * ROW_PX;
+  }
+
+  function applyPaperFeed(extraRows) {
+    if (!el.paper) return;
+    el.paper.style.transform = "translateY(" + paperFeedPx(extraRows) + "px)";
   }
 
   function syncSheet(force) {
@@ -1046,27 +1068,29 @@
   }
 
   function landFeed() {
-    var flow = el.flow;
     if (feedTimer) { window.clearTimeout(feedTimer); feedTimer = null; }
-    if (!flow) return;
-    flow.style.transition = "none";
-    flow.style.transform = "";
+    if (!el.paper) return;
+    el.paper.style.transition = "none";
+    applyPaperFeed(0);
   }
 
+  /* The animated feed: the sheet sits one line lower than its rest position for an instant and
+     travels up into it. Rest is already the new row, so the animation ends exactly on the layout
+     value - no jump, and no layout property is ever animated (R4 §7.8). */
   function feedForwardLine() {
-    var flow = el.flow;
-    if (!flow) return;
+    var paper = el.paper;
+    if (!paper) return;
     var t = feedTiming();
     landFeed();                                              /* a new target wins outright */
-    flow.style.transition = "none";
-    flow.style.transform = "translateY(" + ROW_PX + "px)";    /* one line pitch below rest */
-    void flow.offsetHeight;                                  /* commit the start value */
-    flow.style.transition = "transform " + t.ms + "ms " + t.ease;
-    flow.style.transform = "translateY(0)";
+    paper.style.transition = "none";
+    paper.style.transform = "translateY(" + (paperFeedPx(0) + ROW_PX) + "px)";  /* one row back */
+    void paper.offsetHeight;                                 /* commit the start value */
+    paper.style.transition = "transform " + t.ms + "ms " + t.ease;
+    applyPaperFeed(0);
     feedTimer = window.setTimeout(function () {
       feedTimer = null;
-      flow.style.transition = "none";
-      flow.style.transform = "";
+      paper.style.transition = "none";
+      applyPaperFeed(0);
     }, t.ms + 20);
   }
 
@@ -1083,12 +1107,12 @@
     if (ta && !state.help) {
       var empty = ta.selectionStart === ta.selectionEnd;
       var atEnd = empty && ta.selectionStart === ta.value.length;
-      /* Y-1 (provisional): the window must be showing the caret's row. Testing the ROW rather
-         than the page matters: at the end of a document whose last sheet is partial the view
-         is clamped to the last full sheet, and a page-equality test would wrongly hide the head
-         while the user is typing at the very end of that document. */
+      /* Y-1 (provisional): the caret's row must have come OUT of the machine. The rows that
+         count are the shown sheet's, up to the one standing at the print line; anything below
+         that is still inside the machine. */
+      var pageStartHead = state.viewSheet * ROWS_PER_SHEET;
       var viewOnCaret = !Y1_ACTIVE_NEEDS_VIEW_ON_CARET ||
-                        (info.row >= viewRow() && info.row < viewRow() + ROWS_PER_SHEET);
+                        (info.row >= pageStartHead && info.row <= viewRow());
       active = atEnd && viewOnCaret;
     }
     head.style.setProperty("--print-head-col", String(info.colUnits || 0));
@@ -1151,9 +1175,13 @@
   function updatePaperMark() {
     var m = el.paperMark;
     if (!m) return;
-    var z = currentZoom();
-    m.style.fontSize = (PAPER_MARK_SIZE * z) + "px";
-    m.style.top = (PAPER_MARK_CENTRE * z) + "px";
+    /* [1.1.6.1] The colophon is printed on the SHEET. It now sits inside the scaled throat, so
+       its geometry is document px and must NOT be multiplied by the zoom any more - the parent
+       scale does that once. It therefore also travels with the paper, like any other printed
+       mark, and at the r1 throat it spends the whole run below the machine throat (P05 is still
+       open on whether the paper colophon survives at all). */
+    m.style.fontSize = PAPER_MARK_SIZE + "px";
+    m.style.top = PAPER_MARK_CENTRE + "px";
     m.style.display = "block";
   }
 
@@ -1206,11 +1234,13 @@
     var pick = railRow(info);
     var r = pick.rowData;
     if (!r) { left.style.display = right.style.display = "none"; return; }
-    /* [1.1.6.1] The marks are screen chrome on the sheet the WINDOW is showing, so the row is
-       measured against the viewport, not against the caret's page: while the user browses
-       away from the caret, the caret's line is off the sheet and both marks are hidden rather
-       than drawn into the machine or the margins. */
-    if (pick.row < viewRow() || pick.row >= viewRow() + ROWS_PER_SHEET) {
+    /* [1.1.6.1] The marks are screen chrome drawn on the sheet, so they follow the sheet: a row
+       is on screen when it belongs to the sheet the throat is showing AND has already come out
+       of the machine, i.e. it is not below the row standing at the print line. The row at the
+       print line sits at PRINT_LINE_TOP_PX in the stage, so a row's screen position is that
+       constant plus its distance from the print-line row. */
+    var pageStart = state.viewSheet * ROWS_PER_SHEET;
+    if (pick.row < pageStart || pick.row > viewRow()) {
       left.style.display = right.style.display = "none";
       return;
     }
@@ -1219,7 +1249,7 @@
        the trailing mark has no last character cell to sit after. */
     var z = currentZoom();
     var xFirst = RAIL_MARGIN_PX * z;                               /* first cell's left edge */
-    var yCentre = (RAIL_MARGIN_PX + (pick.row - viewRow()) * ROW_PX +
+    var yCentre = (PRINT_LINE_TOP_PX + (pick.row - viewRow()) * ROW_PX +
                    ROW_PX / 2) * z;                                /* line's vertical centre */
     /* eight character cells in DOCUMENT space: the gap grows with document ZOOM, so the mark
        always reads as eight characters away from the row's first cell (PM 2026-10-06) */
@@ -1266,11 +1296,13 @@
     if (!g || !gr || !el.editor || !state.layout || document.activeElement !== el.editor ||
         el.editor.selectionStart !== el.editor.selectionEnd) { hideAll(); return; }
     var pick = railRow(locate(state.layout, el.editor.selectionStart || 0));
-    /* [1.1.6.1] same rule as the rail marks: the carriage rail belongs to the sheet the window
-       is showing, so a caret that browsing has taken off that sheet hides the whole rail. */
-    if (pick.row < viewRow() || pick.row >= viewRow() + ROWS_PER_SHEET) { hideAll(); return; }
+    /* [1.1.6.1] same rule as the rail marks: the carriage rail belongs to a row that is out of
+       the machine on the sheet the throat is showing, so a caret that browsing has taken off
+       that sheet - or below the print line - hides the whole rail. */
+    var pageStart = state.viewSheet * ROWS_PER_SHEET;
+    if (pick.row < pageStart || pick.row > viewRow()) { hideAll(); return; }
     var z = currentZoom();
-    var colTop = RAIL_MARGIN_PX + (pick.row - viewRow()) * ROW_PX;
+    var colTop = PRINT_LINE_TOP_PX + (pick.row - viewRow()) * ROW_PX;
     var xRight = (RAIL_MARGIN_PX + pick.colUnits * RAIL_UNIT_PX) * z;   /* the caret itself */
     var lineTop = (colTop + ROW_PX) * z;                 /* the carriage line's own row */
     var h = (TYPE_LINE_H * z) + "px";
@@ -1470,7 +1502,13 @@
      transform only, it never reaches the print DOM. */
   function applyZoom() {
     var z = currentZoom();
-    el.paper.style.transform = "scale(" + z + ")";
+    /* [1.1.6.1] The zoom moved one level up, from .paper to the machine's throat. The sheet now
+       carries the feed translate, so scaling it directly would fight that transform; scaling the
+       throat keeps machine and paper on one scale (R4 §6.2) and leaves the paper's transform
+       free. .machine-fixed takes the same scale, so a machine part stays put on the machine
+       while the paper moves under it. */
+    if (el.paperClip) el.paperClip.style.transform = "scale(" + z + ")";
+    if (el.machineFixed) el.machineFixed.style.transform = "scale(" + z + ")";
     el.stageInner.style.width = (PAPER_W * z) + "px";
     el.stageInner.style.height = (PAPER_H * z) + "px";
     el.btnZoom.textContent = "ZOOM " + ZOOM_STEPS[state.zoomIndex].label;

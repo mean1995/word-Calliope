@@ -84,6 +84,12 @@
   --counter-w:97.63596809282089px;
   --counter-h:26.627991298042062px;
 
+  /* The machine's throat: the bottom edge of the row the print line sits in, in document px
+     (1in margin + 54 rows = 960; printLineY 956 is 12px into that last row). Everything below
+     belongs to the machine, so the sheet is cut off there and only the part that has come out
+     is drawn. Keep in step with FEED_ANCHOR_ROW in app.js - Gate 2 moves both together. */
+  --paper-throat:960px;
+
   /* Forward line-feed animation (R4 §3.1). Y-3 is NOT confirmed: UI proposed 90ms with
      cubic-bezier(.2,0,0,1) and coordinates.json marks it "VIC confirmation required", so the
      values live here as contract variables, not as approved parameters. */
@@ -103,6 +109,13 @@ html,body{
   background:#8d8a80;
   color:#26251f;
   font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;
+  /* [1.1.6.1] The page itself must never scroll. This is not cosmetic: with a scrollable
+     document Chromium gives Home / End to the PAGE instead of the focused textarea, so the
+     caret stops moving on those keys - found on 2026-10-15 when a stray 118px of overflow
+     from an out-of-place element made the document 1078px tall in a 960px viewport. The rule
+     makes that class of bug impossible rather than merely absent; print resets it below. */
+  overflow:hidden;                 /* fallback */
+  overflow:clip;
 }
 
 /* ------------------------------------------------------------------ control bar
@@ -327,18 +340,56 @@ html,body{
   pointer-events:none;
 }
 
+/* --------------------------------------------------- 1.1.6.1 machine throat and paper feed
+   VIC's ruling (2026-10-15): the paper moves, the machine does not (P04). .paper-clip is the
+   machine's throat - it carries the document ZOOM (so machine and paper still scale together,
+   R4 §6.2) and cuts the sheet off at the bottom of the print-line row. What shows through is
+   only the part of the sheet that has come OUT: at the start of a sheet that is the one-inch
+   top margin plus the line being written; after 53 lines the whole writing area is out. The
+   rest of the sheet (blank paper and the bottom margin) is behind the machine and is simply
+   not drawn in this build.
+
+   --paper-throat is the throat's height in document px: 1in margin + 54 rows = 960, the bottom
+   of the row the print line (r1 printLineY 956) sits in. It is a contract value: Gate 2 may move
+   it together with FEED_ANCHOR_ROW, and the two must stay in step. */
+.paper-clip{
+  position:relative;
+  width:var(--sheet-w);
+  height:var(--paper-throat, 960px);
+  overflow:hidden;                 /* fallback */
+  overflow:clip;                   /* not a scroll container (R4 §2.4) */
+  transform-origin:top left;
+  flex:0 0 auto;
+}
+/* The sheet itself: translated up by app.js as the writing advances. Only a transform, never a
+   layout property (R4 §7.8), so the feed animation cannot reflow the document. */
+.paper{
+  transform-origin:top left;
+  will-change:transform;
+}
+
 /* --------------------------------------------------- 1.1.6.1 print head / page counter
    Both are pure contract hooks in this build: they exist, they are positioned from the
    variables above and they carry live state (html[data-print-head], the counter's text), but
    they paint nothing until the UI-integration build sets data-ui-art="ready" on <html> and
    gives .print-head its artwork. No interaction at all: pointer-events:none, so paper clicks
-   and drag-selection keep working (打字机UI技术侧需求 §2.4). Both sit inside .paper, so
-   @media print already hides them with .stage - they can never reach an output path. */
+   and drag-selection keep working (打字机UI技术侧需求 §2.4). .machine-fixed carries the same
+   zoom as the throat, so a machine part keeps its position on the machine while the paper
+   moves under it. They sit inside .stage, so @media print already hides them with it - they can
+   never reach an output path. */
+.machine-fixed{
+  position:absolute;
+  left:0;
+  top:0;
+  width:0;
+  height:0;
+  transform-origin:top left;
+  z-index:3;
+}
 .print-head,
 .page-counter{
   position:absolute;
   pointer-events:none;
-  z-index:2;
   display:none;
 }
 .print-head{
@@ -554,7 +605,8 @@ html[data-ui-art="ready"] .page-counter{ display:block; }
 
 @media print{
   @page{size:letter;margin:0}
-  html,body{background:#fff;height:auto}
+  /* the screen's no-scroll guard must not clip the printed sheets: the print DOM paginates */
+  html,body{background:#fff;height:auto;overflow:visible}
   .bar,.stage{display:none !important}
   #print-root{display:block}
 
