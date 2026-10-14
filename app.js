@@ -65,6 +65,26 @@
   var Y5_AA_IS_TOP_VISIBLE_ROW = true;        /* Y-5: AA = the page of the top visible row */
   var Y6_SELECTION_REPLACE_IS_MECHANICAL = false; /* Y-6: no - a replace is not mechanical */
 
+  /* --------------------------------------- 1.1.6.1 paper feed rest position (VIC 2026-10-15)
+     VIC ruled the feed model directly (option B): the paper scrolls up continuously and the
+     line being written stays on the print line. The print line's row comes from the r1
+     candidate contract - printLineY 956 inside the writing area that starts at 96 with a 16px
+     pitch: (956 - 96) / 16 = 53.75, i.e. the 54th row, the last one of the window. So the top
+     row of the window is always (caret row - 53), and while the document is shorter than that
+     the view goes NEGATIVE: the rows above the first line are the blank paper the sheet has
+     not fed past yet. Two consequences, both deliberate and recorded in the notes:
+       * the whole sheet is no longer visible at once - this is the model VIC chose;
+       * the area above the type-in point is blank paper until the machine artwork covers it
+         (the machine body, platen and slot are a later build).
+     FEED_ANCHOR_ROW is the single number the Gate 2 registration will replace; if the print
+     line moves, this constant moves and nothing else. */
+  var FEED_ANCHOR_ROW = 53;                   /* printLineY 956 -> row 53 of 54 */
+
+  /* Set to true to keep the 1.1.5.1 look for a document shorter than one sheet (view stuck at
+     the sheet top, no scrolling until row 54). It is false because VIC asked for the scrolling
+     paper; it exists so the alternative is one line away if the visual is rejected. */
+  var FEED_CLAMP_AT_SHEET_TOP = false;
+
   /* R4 §4.2: the input types that count as typewriter-class input. Everything else
      (insertFromPaste, insertFromDrop, historyUndo, historyRedo, delete*, ...) is modern
      editing and may never sound or feed, whatever the caret ends up doing. */
@@ -702,12 +722,21 @@
     return t > ROWS_PER_SHEET ? t - ROWS_PER_SHEET : 0;
   }
 
+  /* The lowest row the window may show. Negative means blank paper above the first line: with
+     the feed model VIC chose, the line being written sits on the print line (window row 53),
+     so an empty or short document legitimately shows the window 53 rows above row 0.
+     FEED_CLAMP_AT_SHEET_TOP restores the old floor of 0. */
+  function minViewRow() {
+    return FEED_CLAMP_AT_SHEET_TOP ? 0 : -FEED_ANCHOR_ROW;
+  }
+
   function viewRow() { return state.viewSheet * ROWS_PER_SHEET + state.viewIntraRows; }
 
   function setViewRow(row) {
     if (!isFinite(row)) return false;
     row = Math.floor(row);
-    if (row < 0) row = 0;
+    var min = minViewRow();
+    if (row < min) row = min;
     var max = maxViewRow();
     if (row > max) row = max;
     var sheet = Math.floor(row / ROWS_PER_SHEET);
@@ -733,12 +762,19 @@
     return moved;
   }
 
-  /* The normal view: the caret's page, page-aligned - which is exactly the 1.1.5.1 behaviour
-     expressed in the new quantity, so an untouched build renders identically. Following the
-     caret also ends the browsing state (P06). */
+  /* The normal view: the line being written sits ON the print line (VIC's feed model, option B).
+     The window's top row is therefore (caret row - FEED_ANCHOR_ROW); setViewRow clamps it into
+     the allowed range, so a document shorter than the anchor legitimately shows blank paper
+     above its first line, and the last full sheet stops the view at the end of a long one.
+     Following the caret also ends the browsing state (P06).
+
+     [1.1.5.1 -> 1.1.6.1] This replaced "the caret's page, page-aligned". That older rule is what
+     made the sheet sit still and only turn at row 54; with the anchor the paper scrolls one row
+     per line from the first line on, which is what "纸张向上进给相应行距" looks like when the
+     whole sheet is a window rather than a fixed picture. */
   function viewToCaret() {
     var info = caretInfo();
-    var moved = setViewRow(Math.floor(info.row / ROWS_PER_SHEET) * ROWS_PER_SHEET);
+    var moved = setViewRow(info.row - FEED_ANCHOR_ROW);
     state.viewBrowsing = false;
     return moved;
   }
@@ -789,7 +825,8 @@
      first keystroke after a browse. */
   function inputMoment() {
     browseClear();
-    var base = Math.floor(caretInfo().row / ROWS_PER_SHEET) * ROWS_PER_SHEET;
+    /* the same anchor viewToCaret() uses: the caret's line goes back onto the print line */
+    var base = caretInfo().row - FEED_ANCHOR_ROW;
     if (viewRow() !== base) setViewRow(base);
     /* the browse session ends here even when the clamp means the view cannot move: from this
        keystroke on, AA is the page being written on again (R4 §5.3) */
