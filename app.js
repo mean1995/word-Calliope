@@ -21,7 +21,9 @@
   var ROWS_PER_SHEET = 54;                /* 9in x 6 LPI                   §10 */
   var ROW_PX = 16;                        /* 1/6in @96dpi                  §10 */
   var UNITS_PER_TAB = 4;                  /* §22 */
-  var MARGIN_UNITS = 70;                  /* end-of-line warning state     §15 */
+  /* §15's MARGIN_UNITS (the 70-unit end-of-line warning) was retired in 1.1.6.1: P09 is
+     REMOVED, so there is no warning state, no attribute and no bell. The 78-unit width and
+     both AUTO RETURN behaviours are untouched - only the warning mechanism is gone. */
   var RECOVERY_MS = 3 * 60 * 1000;        /* §38 */
   var SHEET_PX = ROWS_PER_SHEET * ROW_PX; /* 864 */
   var PAPER_W = 8.5 * 96, PAPER_H = 11 * 96;
@@ -46,7 +48,29 @@
   var DEFAULT_NAME = "Untitled.txt";
   /* reported as <html data-build> so a stale cached script can be told apart from a bug.
      Keep in step with --build in style.css (<html data-css>). */
-  var APP_BUILD = "1.1.5.2";
+  var APP_BUILD = "1.1.6.1";
+
+  /* ------------------------------------------- 1.1.6.1 provisional rulings (Y-items)
+     Each open Y-item from Technical-Reply-1.1.6-R4.md §8.3 is ONE constant here, so a product
+     ruling changes one line and nothing else. They are marked 暂定 (provisional) in
+     Dev-Memo-1.1.6.1/Inventory-and-Scope-1.1.6.1.md and must be revisited when the product
+     side rules; until then the technical recommendation is implemented. */
+  var Y1_ACTIVE_NEEDS_VIEW_ON_CARET = true;   /* Y-1: Active also requires the view to show the
+                                                 caret's page, or the head would sit on another
+                                                 sheet's paper while matching the end column */
+  var Y2_PAGEUP_MOVES_CARET = true;           /* Y-2: Page Up/Down stay modern navigation (the
+                                                 R4 §2.2 table); only the wheel browses */
+  var Y4_COUNTER_OVERFLOW_ALL = true;         /* Y-4: E1/E1 for the whole window (the
+                                                 VIC-meeting ruling) instead of AA/E1 */
+  var Y5_AA_IS_TOP_VISIBLE_ROW = true;        /* Y-5: AA = the page of the top visible row */
+  var Y6_SELECTION_REPLACE_IS_MECHANICAL = false; /* Y-6: no - a replace is not mechanical */
+
+  /* R4 §4.2: the input types that count as typewriter-class input. Everything else
+     (insertFromPaste, insertFromDrop, historyUndo, historyRedo, delete*, ...) is modern
+     editing and may never sound or feed, whatever the caret ends up doing. */
+  var TYPING_INPUT_TYPES = {
+    insertText: 1, insertParagraph: 1, insertLineBreak: 1, insertCompositionText: 1
+  };
 
   /* ------------------------------------------------------------------- elements */
   var el = {};
@@ -68,6 +92,9 @@
     el.typeLineRightUp2 = document.getElementById("type-line-right-up2");
     el.caretMask = document.getElementById("caret-mask");
     el.paperMark = document.getElementById("paper-mark");
+    /* 1.1.6.1 hooks: no artwork in this build, but the state and the geometry are live */
+    el.printHead = document.getElementById("print-head");
+    el.pageCounter = document.getElementById("page-counter");
     el.printRoot = document.getElementById("print-root");
     el.fileInput = document.getElementById("file-input");
     el.btnNew = document.getElementById("btn-new");
@@ -88,13 +115,27 @@
     handle: null,          /* FileSystemFileHandle when the platform grants one  §30 */
     safeOverwrite: true,   /* false once U+FFFD was seen on OPEN                 §29 */
     savedText: "",         /* value at the last SAVE / OPEN / NEW                   */
-    sheet: 0,
+    sheet: 0,              /* the CARET's page. Not the same quantity as the view    */
+    /* 1.1.6.1 viewport (R4 §2.1): the page the window is actually showing, as
+       viewSheet * 54 + viewIntraRows rows from the top of the text. It is normally equal to
+       the caret's page, and the wheel may move it while the caret stays put. */
+    viewSheet: 0,
+    viewIntraRows: 0,
+    viewBrowsing: false,   /* true only while a browse action owns the view (R4 §5.3 AA rule) */
+    /* 1.1.6.1 mechanical state: the pre-edit snapshot the eligibility formula is judged
+       against (R4 §4.2 samples it BEFORE the edit), plus the browser's own classification of
+       the edit that just happened. */
+    editSnap: null,
+    lastInputType: "",
+    lastInputData: "",
+    helpCounter: null,     /* §5.4 the page numbers shown when HELP opened (frozen while up) */
     layout: null,
     autoReturn: true,      /* §16 */
     zoomIndex: 0,
     paperIndex: 0,
     ribbonIndex: 0,
     pendingCaret: null,    /* §P0 selection held while a control owns focus; memory only */
+    browseUntil: 0,        /* 1.1.6.1: viewport owns itself until this timestamp (D-1) */
     help: false            /* §H HELP sheet is showing: the document is closed for editing */
   };
 
@@ -294,6 +335,11 @@
     relayout();
     setCaret(0);
     state.sheet = 0;
+    state.viewSheet = 0;         /* 1.1.6.1 a rebuilt editor starts on the first sheet, row 0 */
+    state.viewIntraRows = 0;
+    state.viewBrowsing = false;
+    wheelAcc = 0;
+    browseClear();
     state.pendingCaret = null;   /* §P0 a rebuilt editor has no earlier selection to put back */
     positionEditor();
     syncInk(true);
@@ -389,6 +435,13 @@
       /* remember the real editing position before the control is taken away (§P0 gives the
          capture; here we only make sure it happens before the selection can be lost) */
       captureCaret();
+      /* [1.1.6.1 R4 §5.4] Freeze the page-counter window at the values the DOCUMENT had when
+         HELP opened. The sheet now shows help copy, whose rows are not the document's
+         pagination, so the counter must not be recomputed from it; it comes back in step when
+         the sheet closes. */
+      state.helpCounter = counterValues();
+      updateCounter();
+      landFeed();                                  /* no paper motion may outlive the sheet */
       el.editor.disabled = true;                   /* no typing, no selection, no IME, no drop */
       el.editor.setAttribute("tabindex", "-1");
       setDocumentControlsEnabled(false);           /* the document controls read as unavailable */
@@ -407,6 +460,8 @@
       setDocumentControlsEnabled(true);
       setRailsHidden(false);                       /* the editing marks come back with the text */
       el.btnHelp.textContent = "HELP";
+      /* [1.1.6.1 R4 §5.4] the document's own page numbers come back with the document */
+      state.helpCounter = null;
       try { el.editor.focus({ preventScroll: true }); } catch (e) { el.editor.focus(); }
       scheduleRecoveryCheck();
     }
@@ -627,9 +682,188 @@
     return locate(state.layout, off || 0);
   }
 
+  /* ================================================= 3. viewport (1.1.6.1)
+     R4 §2.1: two separate quantities. The CARET page (state.sheet) says where editing is;
+     the VIEW page (state.viewSheet + state.viewIntraRows) says what the window shows. They
+     are equal in the normal state. The wheel may move the view while the caret stays put
+     (R4 §2.2, a VIC-meeting ruling); every caret move and the first keystroke after browsing
+     put the view back on the caret (R4 §2.3 / P06).
+
+     setViewRow() is the ONLY writer of the view amount, exactly as positionEditor() was the
+     only writer of the old page offset. Clamped to [0, totalRows - 54]: the view stops at the
+     first row and at the last full sheet, with no rubber band (R4 §2.4). A page number alone
+     is not enough - the in-page row is part of the quantity, otherwise a 27-row wheel step is
+     rounded back to the same page and the wheel never turns (Gate 1 finding). */
+
+  function totalRows() { return state.layout ? state.layout.totalRows : 0; }
+
+  function maxViewRow() {
+    var t = totalRows();
+    return t > ROWS_PER_SHEET ? t - ROWS_PER_SHEET : 0;
+  }
+
+  function viewRow() { return state.viewSheet * ROWS_PER_SHEET + state.viewIntraRows; }
+
+  function setViewRow(row) {
+    if (!isFinite(row)) return false;
+    row = Math.floor(row);
+    if (row < 0) row = 0;
+    var max = maxViewRow();
+    if (row > max) row = max;
+    var sheet = Math.floor(row / ROWS_PER_SHEET);
+    var intra = row - sheet * ROWS_PER_SHEET;
+    if (sheet === state.viewSheet && intra === state.viewIntraRows) return false;
+    state.viewSheet = sheet;
+    state.viewIntraRows = intra;
+    positionEditor();
+    /* The chrome and the page counter describe the WINDOW, so they move with it: without this
+       a wheel gesture moved the paper while the counter still showed the caret's page (found
+       by the mechanical harness, 2026-10-15). */
+    refreshViewportChrome();
+    return true;
+  }
+
+  /* The one browse primitive: the wheel moves the view and marks the viewport as displaced.
+     state.viewBrowsing is what tells "the user is looking at another sheet" apart from "the
+     document ends here so the view is clamped" - the two are very different for AA (§5.3). */
+  function moveViewRows(rows) {
+    if (!rows) return false;
+    var moved = setViewRow(viewRow() + rows);
+    if (moved) state.viewBrowsing = true;
+    return moved;
+  }
+
+  /* The normal view: the caret's page, page-aligned - which is exactly the 1.1.5.1 behaviour
+     expressed in the new quantity, so an untouched build renders identically. Following the
+     caret also ends the browsing state (P06). */
+  function viewToCaret() {
+    var info = caretInfo();
+    var moved = setViewRow(Math.floor(info.row / ROWS_PER_SHEET) * ROWS_PER_SHEET);
+    state.viewBrowsing = false;
+    return moved;
+  }
+
+  /* ---- browse suppression (D-1) -------------------------------------------------------
+     A browse action owns the viewport for a moment. Without this, the keyup / select /
+     onCaretMoved paths that belong to the same gesture pull the view straight back to the
+     caret (measured on real Safari: view 3 -> 10 after one PageUp). The window is a
+     timestamp, so a lost keyup cannot wedge it; any keydown, click or input ends it at once,
+     so a genuine navigation is never swallowed. */
+  var BROWSE_HOLD_MS = 250;
+
+  function viewNow() {
+    return (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+  }
+
+  function browseActive() { return state.browseUntil > viewNow(); }
+  function browseHold(ms) { state.browseUntil = Math.max(state.browseUntil, viewNow() + (ms || BROWSE_HOLD_MS)); }
+  function browseClear() { state.browseUntil = 0; }
+
+  /* ---- wheel browsing (R4 §2.2 / §2.4) ------------------------------------------------
+     The wheel moves the viewport and never the caret, silently. Delta modes are normalised,
+     the remainder is carried across events so a trackpad's inertia does not lose or overrun
+     a line, and the step is one line (16 document px) - the same pitch as the 6 LPI grid, so
+     no half-line of paper ever appears. preventDefault is required: Safari's document-level
+     wheel listener is passive by default and the page would scroll as well, doubling the
+     displacement. */
+  var wheelAcc = 0;
+
+  function onWheel(e) {
+    if (state.help) return;
+    browseHold(BROWSE_HOLD_MS);
+    var px = e.deltaY || 0;
+    if (e.deltaMode === 1) px *= ROW_PX;              /* DOM_DELTA_LINE */
+    else if (e.deltaMode === 2) px *= SHEET_PX;       /* DOM_DELTA_PAGE */
+    wheelAcc += px;
+    var rows = wheelAcc < 0 ? Math.ceil(wheelAcc / ROW_PX) : Math.floor(wheelAcc / ROW_PX);
+    if (rows !== 0) {
+      wheelAcc -= rows * ROW_PX;
+      moveViewRows(rows);
+    }
+    if (e.cancelable !== false) e.preventDefault();
+  }
+
+  /* The input moment (R4 §2.3): browsing ends and the view returns to the caret BEFORE the
+     mechanical eligibility of this input is judged. Reversing the order would let the
+     eligibility formula read a stale "is the view showing the caret page" and silence the
+     first keystroke after a browse. */
+  function inputMoment() {
+    browseClear();
+    var base = Math.floor(caretInfo().row / ROWS_PER_SHEET) * ROWS_PER_SHEET;
+    if (viewRow() !== base) setViewRow(base);
+    /* the browse session ends here even when the clamp means the view cannot move: from this
+       keystroke on, AA is the page being written on again (R4 §5.3) */
+    state.viewBrowsing = false;
+  }
+
+  /* ---- D-2: Page Up / Page Down as real paging ----------------------------------------
+     The caret moves one sheet (54 rows) in either direction, keeping its column in units where
+     the target row is long enough, and the view follows through the ordinary caret path. It is
+     modern navigation: silent (S02) and never a line feed (P12). */
+  function pageCaret(direction) {
+    if (!el.editor || !state.layout) return false;
+    var info = caretInfo();
+    var rows = flattenRows(state.layout);
+    if (!rows.length) return false;
+    var target = info.row + direction * ROWS_PER_SHEET;
+    if (target < 0) target = 0;
+    if (target > rows.length - 1) target = rows.length - 1;
+    if (target === info.row) return false;
+    setCaret(offsetFromRowUnits(target, info.colUnits || 0));
+    syncSheet(false);
+    return true;
+  }
+
+  /* ---- D-4: a paper point becomes a document offset -----------------------------------
+     Used ONLY for clicks outside the text column (the paper's margins and the slot area); a
+     click on the text itself is left to the engine's own hit test, which was measured to be
+     exact (Chromium, 2026-10-15, at FIT zoom and at 100%, before and while browsing).
+     The pointer arrives in CSS px AFTER the document ZOOM transform, so it is divided by the
+     live scale - taken from the paper's own rect, never parsed out of a transform string -
+     before it is read against the 96px margin and the 8 x 16 document grid. */
+  function documentPointFromClient(x, y) {
+    var rect = el.paper.getBoundingClientRect();
+    var z = rect.width > 0 ? (rect.width / PAPER_W) : 1;
+    if (!isFinite(z) || z <= 0) z = 1;
+    return { x: (x - rect.left) / z, y: (y - rect.top) / z, z: z };
+  }
+
+  /* Row + column units -> document offset. The row is walked in code points so a CJK character
+     counts as its two units and a surrogate pair stays one character; the result is the offset
+     of the character the pointer is inside, which is what "click where you mean to type" means. */
+  function offsetFromRowUnits(row, colUnits) {
+    var rows = flattenRows(state.layout);
+    if (!rows.length) return 0;
+    if (row < 0) row = 0;
+    if (row >= rows.length) row = rows.length - 1;
+    var r = rows[row];
+    var text = r.text || "";
+    var units = 0, i = 0;
+    while (i < text.length) {
+      var cp = text.codePointAt(i);
+      var w = unitsOfCodePoint(cp);
+      if (units + w > colUnits) break;
+      units += w;
+      i += (cp > 0xFFFF ? 2 : 1);
+    }
+    return r.from + i;
+  }
+
+  function placeCaretFromPaperPoint(clientX, clientY) {
+    if (!el.editor || !state.layout) return false;
+    var p = documentPointFromClient(clientX, clientY);
+    var row = Math.floor((p.y - RAIL_MARGIN_PX) / ROW_PX) + viewRow();
+    var colUnits = Math.floor((p.x - RAIL_MARGIN_PX) / RAIL_UNIT_PX);
+    if (colUnits < 0) colUnits = 0;
+    if (colUnits > UNITS_PER_ROW) colUnits = UNITS_PER_ROW;
+    setCaret(offsetFromRowUnits(row, colUnits));
+    syncSheet(false);                      /* the view follows the caret: the click is navigation */
+    return true;
+  }
+
   function positionEditor() {
     if (!el.flow) return;
-    el.flow.style.top = (-(state.sheet * SHEET_PX)) + "px";
+    el.flow.style.top = (-(viewRow() * ROW_PX)) + "px";
     resetScroll();
   }
 
@@ -637,25 +871,235 @@
     if (!el.editor) return;
     var info = caretInfo();
     var sheet = info.sheet < 0 ? 0 : info.sheet;
-    if (force || sheet !== state.sheet) {
-      var turned = !force && sheet !== state.sheet;
-      state.sheet = sheet;
-      positionEditor();
-      /* §24 slot 3 is the only sound that is not a keystroke: the sheet turning over.
-         It is read here because this is where "the view really moved to another sheet"
-         is already decided - typing past the foot of a sheet, arrowing or paging across
-         one, clicking into another. `force` is the new-document / open / recovery path
-         and stays silent. This is a read: nothing is written, nothing waits (§25). */
-      if (turned) playSound(3);
-    }
-    /* §15 end-of-line warning state. The warning tracks the typing position (the
-       carriage) inside the current 78-unit line: at 70 units the line is in the
-       margin warning state. There is no bell asset, so the state never depends on
-       sound and never alters input behaviour; it is exposed as an attribute only. */
-    if (info.colUnits >= MARGIN_UNITS) el.paper.setAttribute("data-margin", "warning");
-    else el.paper.removeAttribute("data-margin");
+    /* The view follows the caret unless the user is browsing (D-1). `force` is the
+       new-document / open / recovery path: it always re-anchors, and stays silent. */
+    var follows = force || !browseActive();
+    state.sheet = sheet;
+    if (follows) viewToCaret();
+    /* [1.1.6.1 S01/S02/S04] This function no longer makes a sound. 1.1.5.1 played the sheet
+       sound here whenever the page changed, so every navigation and every click across a
+       boundary was audible; under the locked rules only a real mechanical write may sound,
+       and that decision belongs to mechanicalFeedback(), which knows what the edit was. The
+       view move itself stays instant and silent (P02). */
+    /* §15 the end-of-line warning was REMOVED by P09 in 1.1.6.1: no attribute, no state and no
+       bell. The block that used to live here is gone, and nothing else depended on it -
+       style.css and index.html have no consumer of data-margin (checked 2026-10-15). */
+    refreshViewportChrome();
+  }
+
+  /* Everything that is drawn from the window's position rather than from the document: the
+     two rail marks, the carriage rail, the print head's state and the page counter. Called
+     from syncSheet (the caret moved) and from setViewRow (the window moved), so the two ways
+     the view can change can never leave the chrome stale. */
+  function refreshViewportChrome() {
     updateRailMarks();
     updateTypeLine();
+    updatePrintHead(caretInfo());
+    updateCounter();
+  }
+
+  /* ================================================= 3d. mechanical feedback (1.1.6.1)
+     R4 §1–§4. Two decisions that 1.1.5.1 took in the wrong place are taken here instead:
+     what an operation IS (mechanical writing or modern editing), and what that earns it
+     (a sound, a line feed, or nothing at all). Print-head visibility is a separate question
+     that reads the same source facts (§1.2). */
+
+  /* The pre-edit snapshot. It MUST be taken before the edit: afterwards the selection has
+     already moved, so "was the caret at the end" and "was there a selection" are no longer
+     answerable (R4 §4.2). */
+  function takeEditSnapshot() {
+    var ta = el.editor;
+    if (!ta) { state.editSnap = null; return; }
+    var info = caretInfo();
+    var empty = ta.selectionStart === ta.selectionEnd;
+    state.editSnap = {
+      empty: empty,
+      atEnd: empty && ta.selectionStart === ta.value.length,
+      row: info.row,
+      sheet: info.sheet < 0 ? 0 : info.sheet,
+      colUnits: info.colUnits,
+      len: ta.value.length,
+      composing: state.composing === true
+    };
+  }
+
+  /* R4 §4.2 mechanical eligibility: a typing-class input, no selection before the edit, and
+     the caret at the true end of the document before the edit. Composition is excluded so
+     that S03 keeps the 1.1.5.1 IME handling exactly as it was. */
+  function mechanicalEligible(snap, inputType) {
+    if (!snap) return false;
+    if (!TYPING_INPUT_TYPES[inputType] && inputType !== "deleteContentBackward") return false;
+    if (snap.composing) return false;
+    if (!snap.empty && !Y6_SELECTION_REPLACE_IS_MECHANICAL) return false;
+    return snap.atEnd;
+  }
+
+  /* Sound slots: 0 sound1 character · 1 sound2 space/nav/backspace · 2 sound3 return ·
+     3 sound4 the sheet turning over. */
+  var SOUND_CHARACTER = 0, SOUND_SPACE = 1, SOUND_RETURN = 2, SOUND_SHEET = 3;
+
+  /* The chain of R4 §4.1: SOUND OFF (inside playSound) -> eligibility -> cross-page sound4 ->
+     ordinary mechanical sound. Called once per edit, after the layout is current. */
+  function mechanicalFeedback() {
+    var snap = state.editSnap;
+    var inputType = state.lastInputType;
+    state.editSnap = null;
+    state.lastInputType = "";
+    if (!snap || !el.editor) return;
+    if (!mechanicalEligible(snap, inputType)) return;   /* silent: paste, drop, undo, history */
+
+    var info = caretInfo();
+    var sheet = info.sheet < 0 ? 0 : info.sheet;
+    var typed = TYPING_INPUT_TYPES[inputType] === 1;
+    var backspace = inputType === "deleteContentBackward";
+    var crossed = sheet !== snap.sheet;
+    var forward = info.row > snap.row;
+    var backward = info.row < snap.row;
+
+    if (typed && crossed) {
+      /* P02 / S04: a real forward page crossing - instant switch, no paper-change animation,
+         and sound4 replaces the carriage-return sound (it is never stacked). */
+      landFeed();
+      playSound(SOUND_SHEET);
+      return;
+    }
+    if (typed && forward) {
+      /* The only event that may animate a feed (P12): a real forward line break from normal
+         sequential writing - Enter, or an AUTO RETURN wrap, which the engine performs inside
+         the layout without any newline character. */
+      playSound(SOUND_RETURN);
+      feedForwardLine();
+      return;
+    }
+    if (backspace && backward) {
+      /* P01 scheme A: the paper steps back by the line pitch instantly, no reverse animation
+         and no extra feed sound. */
+      landFeed();
+      return;
+    }
+    if (backspace) { playSound(SOUND_SPACE); return; }  /* end Backspace, same line (§4.2) */
+    if (typed) playSound(state.lastInputData === " " ? SOUND_SPACE : SOUND_CHARACTER);
+  }
+
+  /* ---- the three independent paths (R4 §3.4) ------------------------------------------
+     1. feedForwardLine() - the ONLY animated one. Transform only (R4 §7.8 / UIREQ §7), never
+        a layout property, and a newer target wins outright: the animation restarts from rest
+        instead of being queued or replayed (R4 §3.1 / D2).
+        The steady-state question - where the paper comes to rest relative to the fixed print
+        line - needs the machine frame and printLineY, which is Gate 2's business. This build
+        plays the feed as a transient one-row gesture that settles back into the page-aligned
+        rest position: it cannot break "one sheet at a time" (G1) and it does not pretend to a
+        geometry that has not been registered. The UI-integration build changes the rest
+        position, not this code path.
+     2. landFeed() - shared by the two INSTANT paths (P01 reverse, P02 page switch). It never
+        animates; it only guarantees a running feed cannot outlive them.
+     3. Nothing else may move the paper. */
+  var feedTimer = null;
+
+  function feedTiming() {
+    var ms = 90, ease = "cubic-bezier(.2,0,0,1)";
+    try {
+      var cs = getComputedStyle(document.documentElement);
+      var v = parseFloat(cs.getPropertyValue("--feed-ms"));
+      if (isFinite(v) && v > 0) ms = v;
+      var e = (cs.getPropertyValue("--feed-ease") || "").trim();
+      if (e) ease = e;
+    } catch (err) { /* keep the fallbacks: an animation must never be able to break input */ }
+    return { ms: ms, ease: ease };
+  }
+
+  function landFeed() {
+    var flow = el.flow;
+    if (feedTimer) { window.clearTimeout(feedTimer); feedTimer = null; }
+    if (!flow) return;
+    flow.style.transition = "none";
+    flow.style.transform = "";
+  }
+
+  function feedForwardLine() {
+    var flow = el.flow;
+    if (!flow) return;
+    var t = feedTiming();
+    landFeed();                                              /* a new target wins outright */
+    flow.style.transition = "none";
+    flow.style.transform = "translateY(" + ROW_PX + "px)";    /* one line pitch below rest */
+    void flow.offsetHeight;                                  /* commit the start value */
+    flow.style.transition = "transform " + t.ms + "ms " + t.ease;
+    flow.style.transform = "translateY(0)";
+    feedTimer = window.setTimeout(function () {
+      feedTimer = null;
+      flow.style.transition = "none";
+      flow.style.transform = "";
+    }, t.ms + 20);
+  }
+
+  /* ---- R4 §1 print-head visibility ----------------------------------------------------
+     Active <=> no selection AND offset === value.length  (the LOCKED formula; "the caret is
+     on the last visual line" is explicitly forbidden as a substitute), plus the Y-1 condition
+     that the window is showing the caret's page. Visibility never grants mechanical feedback:
+     a paste at the end leaves the head Active and stays silent (§1.2). */
+  function updatePrintHead(info) {
+    var head = el.printHead;
+    if (!head) return;
+    var ta = el.editor;
+    var active = false;
+    if (ta && !state.help) {
+      var empty = ta.selectionStart === ta.selectionEnd;
+      var atEnd = empty && ta.selectionStart === ta.value.length;
+      /* Y-1 (provisional): the window must be showing the caret's row. Testing the ROW rather
+         than the page matters: at the end of a document whose last sheet is partial the view
+         is clamped to the last full sheet, and a page-equality test would wrongly hide the head
+         while the user is typing at the very end of that document. */
+      var viewOnCaret = !Y1_ACTIVE_NEEDS_VIEW_ON_CARET ||
+                        (info.row >= viewRow() && info.row < viewRow() + ROWS_PER_SHEET);
+      active = atEnd && viewOnCaret;
+    }
+    head.style.setProperty("--print-head-col", String(info.colUnits || 0));
+    document.documentElement.setAttribute("data-print-head", active ? "active" : "hidden");
+  }
+
+  /* ---- R4 §5 page-counter window ------------------------------------------------------
+     AA/BB, two digits each; a blank document shows 01/01; either value over 99 shows E1/E1
+     (Y-4 provisional). BB comes from the layout that just ran, never from an estimate of how
+     many characters fit (§5.2).
+
+     §5.3 has two cases that must not be confused:
+       * writing  -> AA is the page being written on (the caret's page), even when the view is
+                     clamped to the last full sheet at the end of a partial document;
+       * browsing -> AA is the page the WINDOW shows, by default that of its top visible row
+                     (Y-5 provisional).
+     "The user is browsing" is state.viewBrowsing, not "the view differs from the caret page":
+     the clamp makes those two differ without anybody browsing. */
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+  function counterValues() {
+    var total = Math.max(1, totalRows());
+    var sheets = Math.max(1, Math.ceil(total / ROWS_PER_SHEET));
+    var page;
+    if (state.viewBrowsing) {
+      page = Y5_AA_IS_TOP_VISIBLE_ROW
+        ? (Math.floor(viewRow() / ROWS_PER_SHEET) + 1)
+        : (state.viewSheet + 1);
+    } else {
+      page = state.sheet + 1;
+    }
+    if (page < 1) page = 1;
+    if (page > sheets) page = sheets;
+    return { aa: page, bb: sheets };
+  }
+
+  function counterText(v) {
+    if (v.aa > 99 || v.bb > 99) {
+      return Y4_COUNTER_OVERFLOW_ALL ? "E1/E1" : (pad2(Math.min(v.aa, 99)) + "/E1");
+    }
+    return pad2(v.aa) + "/" + pad2(v.bb);
+  }
+
+  function updateCounter() {
+    var v = (state.help && state.helpCounter) ? state.helpCounter : counterValues();
+    var text = counterText(v);
+    if (el.pageCounter && el.pageCounter.textContent !== text) el.pageCounter.textContent = text;
+    document.documentElement.setAttribute("data-page", text);
   }
 
   /* ================================================= 3a. paper colophon (1.1.1)
@@ -725,12 +1169,20 @@
     var pick = railRow(info);
     var r = pick.rowData;
     if (!r) { left.style.display = right.style.display = "none"; return; }
+    /* [1.1.6.1] The marks are screen chrome on the sheet the WINDOW is showing, so the row is
+       measured against the viewport, not against the caret's page: while the user browses
+       away from the caret, the caret's line is off the sheet and both marks are hidden rather
+       than drawn into the machine or the margins. */
+    if (pick.row < viewRow() || pick.row >= viewRow() + ROWS_PER_SHEET) {
+      left.style.display = right.style.display = "none";
+      return;
+    }
     /* An empty visual line keeps the leading mark only (2026-10-06 amendment to the rail
        ruling §7): the caret is still on that line, so the line is marked at its start, while
        the trailing mark has no last character cell to sit after. */
     var z = currentZoom();
     var xFirst = RAIL_MARGIN_PX * z;                               /* first cell's left edge */
-    var yCentre = (RAIL_MARGIN_PX + (pick.row - state.sheet * ROWS_PER_SHEET) * ROW_PX +
+    var yCentre = (RAIL_MARGIN_PX + (pick.row - viewRow()) * ROW_PX +
                    ROW_PX / 2) * z;                                /* line's vertical centre */
     /* eight character cells in DOCUMENT space: the gap grows with document ZOOM, so the mark
        always reads as eight characters away from the row's first cell (PM 2026-10-06) */
@@ -777,8 +1229,11 @@
     if (!g || !gr || !el.editor || !state.layout || document.activeElement !== el.editor ||
         el.editor.selectionStart !== el.editor.selectionEnd) { hideAll(); return; }
     var pick = railRow(locate(state.layout, el.editor.selectionStart || 0));
+    /* [1.1.6.1] same rule as the rail marks: the carriage rail belongs to the sheet the window
+       is showing, so a caret that browsing has taken off that sheet hides the whole rail. */
+    if (pick.row < viewRow() || pick.row >= viewRow() + ROWS_PER_SHEET) { hideAll(); return; }
     var z = currentZoom();
-    var colTop = RAIL_MARGIN_PX + (pick.row - state.sheet * ROWS_PER_SHEET) * ROW_PX;
+    var colTop = RAIL_MARGIN_PX + (pick.row - viewRow()) * ROW_PX;
     var xRight = (RAIL_MARGIN_PX + pick.colUnits * RAIL_UNIT_PX) * z;   /* the caret itself */
     var lineTop = (colTop + ROW_PX) * z;                 /* the carriage line's own row */
     var h = (TYPE_LINE_H * z) + "px";
@@ -817,15 +1272,11 @@
       long.style.height = (ROW_PX * z) + "px";
       short.style.height = (ROW_PX / 2 * z) + "px";
     }
-    /* the native caret is at the same boundary; caret-color alone proved unreliable on real
-       Safari, so a paper-coloured patch covers it as well (PM 2026-10-06: hide it completely) */
-    if (mask) {
-      mask.style.left = (xRight - 1) + "px";
-      mask.style.top = colTop * z + "px";
-      mask.style.width = "2px";
-      mask.style.height = (ROW_PX * z) + "px";
-      mask.style.display = "block";
-    }
+    /* [1.1.6.1 V24] The native caret is visible again, so the paper-coloured patch that used to
+       cover it is never shown. The element is left in the DOM (and hidden) rather than deleted,
+       because the UI-integration build may still want a placeholder there; nothing positions it
+       any more. */
+    if (mask) mask.style.display = "none";
   }
 
   function onCaretMoved() { syncSheet(false); }
@@ -837,6 +1288,10 @@
     state.inkLen = document_text().length;
     syncSheet(false);
     syncInk(false);
+    /* [1.1.6.1] The sound and the feed are judged here, after the layout is current and the
+       pre-edit snapshot can be compared with the result (R1-T05: whether an Enter crossed a
+       page is only knowable once the engine has inserted it). */
+    mechanicalFeedback();
     scheduleRecoveryCheck();
   }
 
@@ -861,11 +1316,34 @@
     }
   }
 
+  /* [1.1.6.1] Will this keystroke change the document? Only then is the pre-edit snapshot
+     refreshed at keydown; composition is excluded because S03 keeps its own path, and every
+     OS shortcut is excluded because a shortcut is not typing (S02). */
+  var EDIT_SNAPSHOT_KEYS = { Enter: 1, Backspace: 1, Delete: 1, Tab: 1 };
+
+  function keyWillEdit(e) {
+    if (e.isComposing || e.keyCode === 229) return false;
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (typeof e.key === "string" && e.key.length === 1) return true;
+    return EDIT_SNAPSHOT_KEYS[e.key] === 1;
+  }
+
   function onKeyDown(e) {
     /* §H the editor is disabled while HELP is up, so this listener should not fire; it is
        kept as the second net so that no keystroke can ever reach the document in that state. */
     if (state.help) return;
     if (e.defaultPrevented) return;
+
+    /* [1.1.6.1 R4 §2.3] The input moment: browsing ends and, if the view is showing another
+       sheet, it returns to the caret BEFORE anything judges this keystroke - so the first key
+       after a browse is treated exactly like normal writing and is never silently swallowed.
+       The pre-edit snapshot for the eligibility test is taken here too: at keydown the
+       document has not changed yet, which is the only moment the formula's "no selection" and
+       "caret at the end" can be answered (R4 §4.2). The snapshot is only refreshed for keys
+       that will actually edit, so a stale arrow-key snapshot can never be spent on a later
+       insertion. */
+    inputMoment();
+    if (keyWillEdit(e)) takeEditSnapshot();
 
     /* §23 a keyboard action triggers the typing sound, including while a Chinese
        IME is composing: do not wait for the commit. */
@@ -887,6 +1365,18 @@
     /* Leave every shortcut with the operating system (§20). */
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
+    /* [1.1.6.1 D-2 / Y-2] Page Up / Page Down move the caret by one sheet and the view follows;
+       they stay modern navigation (silent, instant, no feed - S02/P12). The engine cannot do
+       this here: with the control sized to the whole document and clipped, it computes its
+       paging step from a viewport it does not have, and measured on Safari it moved neither
+       the caret nor the page. Deliberately placed AFTER the composition guard so an IME
+       candidate list keeps its own Page Up / Page Down. */
+    if (Y2_PAGEUP_MOVES_CARET && (e.key === "PageUp" || e.key === "PageDown")) {
+      e.preventDefault();
+      pageCaret(e.key === "PageDown" ? 1 : -1);
+      return;
+    }
+
     if (e.key.length === 1 && !state.autoReturn) {
       var info = caretInfo();
       var w = unitsOfCodePoint(e.key.codePointAt(0));
@@ -903,6 +1393,17 @@
      insertFromPaste / insertFromDrop are exempt (§19), insertCompositionText is exempt
      (§18 never intercept composition). */
   function onBeforeInput(e) {
+    /* [1.1.6.1] beforeinput is the one hook every insertion path passes through, including
+       the ones with no keydown of ours (paste, drop, IME commit): the browse state ends and
+       the view returns to the caret here, before the edit is judged. */
+    if (!e.defaultPrevented) inputMoment();
+    /* The browser's own classification of this edit, and the pre-edit snapshot, are recorded
+       here: this is the last moment before the document changes. inputType is what separates
+       a real keystroke (insertText / insertParagraph / insertLineBreak) from paste, drop and
+       undo, which may never sound or feed whatever the caret does (R4 §4.2). */
+    state.lastInputType = e.inputType || "";
+    state.lastInputData = e.data || "";
+    if (!e.isComposing) takeEditSnapshot();
     if (state.autoReturn || e.defaultPrevented || e.isComposing) return;
     if (e.inputType !== "insertText") return;
     var data = e.data || "";
@@ -973,14 +1474,14 @@
     el.paper.style.webkitTextFillColor = "";
     /* The editing control no longer paints glyphs: the mirror layer does, per run (§48).
        Keep the control transparent on both colour channels - otherwise it would draw a
-       second copy of the text in the current ribbon colour. The caret is switched off by
-       design (PM 2026-10-06): this used to be the live ribbon colour, and because it is an
-       inline style it silently overrode the stylesheet, so it is set here explicitly rather
-       than left to CSS. The rail's paper-coloured mask covers it on engines that ignore it. */
+       second copy of the text in the current ribbon colour. [1.1.6.1 V24] The caret is LIVE
+       again and follows the ribbon: this inline value has to be set here rather than left to
+       the stylesheet, because an inline color/style would otherwise keep overriding it - which
+       is exactly how the old build kept the caret invisible. */
     if (el.editor) {
       el.editor.style.color = "transparent";
       el.editor.style.webkitTextFillColor = "transparent";
-      el.editor.style.caretColor = "transparent";
+      el.editor.style.caretColor = ribbon;
     }
     if (el.ink) el.ink.style.webkitTextFillColor = "";   /* never let the layer override a run */
     el.btnPaper.textContent = "PAPER " + PAPER_COLORS[state.paperIndex].name;
@@ -1027,21 +1528,14 @@
      outright. This budget is 11. */
   var AUDIO_VOICES = [4, 3, 2, 2];
   var AUDIO_PARK_MS = 120;                /* element route: settle before rewinding */
-  /* Slot 1 covers the keys that are not characters and not return: the delivered asset
-     names space, the arrows, paging and Home/End together. The product side then ruled
-     two further keys one at a time (2026-10-06) - Backspace takes this same sound,
-     Delete stays silent.
-
-     Left silent on purpose: Delete. Tab is silent too but that is a leftover rather
-     than a decision - it inserts four units, so it is an editing key like the others,
-     and the product side has not ruled on it yet (see the handover, open questions).
-     Shift/Ctrl/Alt/Meta, Escape and the function keys are not editing keys and are
-     silent by design. */
-  var AUDIO_NAV_KEYS = {
-    " ": 1, ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1,
-    PageUp: 1, PageDown: 1, Home: 1, End: 1,
-    Backspace: 1
-  };
+  /* The 1.1.2 key->slot map (AUDIO_NAV_KEYS) lived here. 1.1.6.1 retired it: a key is no
+     longer a sound decision. The four slots are chosen by mechanicalFeedback() from what the
+     operation turned out to be (R4 §4.2), so space, Backspace, the arrows, paging, Home/End
+     and Delete are no longer described by a table of keys - the table was what made every
+     arrow audible. Slot use today: 0 character · 1 space and end-Backspace · 2 return and
+     AUTO RETURN wrap · 3 the sheet turning over.
+     Still open with the product side, unchanged: Tab (inserts four units, stays silent - a
+     1.1.2 leftover, now recorded in the 1.1.6.1 inventory §2.4) and the -9.0 dB level set. */
   var audio = { on: true, route: "none", ctx: null, buffers: [], pools: [] };
 
   function newAudioEl(src) {
@@ -1172,11 +1666,21 @@
     } catch (e) { /* §25 never let audio break input */ }
   }
 
+  /* [1.1.6.1 S01/S02] 1.1.5.1 decided the sound at keydown from the key alone, which made
+     every arrow key, every Page Up/Down and even ⌘C/⌘V audible - the sound map was consulted
+     before the modifier guard, so a shortcut with a printable letter still played sound1.
+     Under the locked rules the key is no longer the question: ordinary characters, space,
+     Enter and Backspace are judged AFTER the edit by mechanicalFeedback() against what the
+     operation actually was (§4.2), and all modern navigation and editing is silent (S02).
+
+     The one path that stays here is the Chinese IME (S03, LOCKED: "保持 1.1.5.1 既有输入与
+     声音处理行为"): a composition still plays per keystroke and still does not wait for the
+     commit. It is played directly rather than through eligibility, because during composition
+     the caret is not at the document end and the eligibility formula would refuse it. */
   function playForKeystroke(e) {
     if (!audio.on) return;
-    if (e.key === "Enter") playSound(2);
-    else if (AUDIO_NAV_KEYS[e.key] === 1) playSound(1);
-    else if (e.key.length === 1 || e.isComposing || e.keyCode === 229) playSound(0);
+    if (e.isComposing || e.keyCode === 229) { playSound(SOUND_CHARACTER); return; }
+    /* every other key: silent here - the edit path decides, and navigation never sounds */
   }
 
   /* =========================================================== 7. TXT files */
@@ -1206,6 +1710,9 @@
     buildEditor(text);
     state.savedText = text;                 /* freshly opened / created: not dirty */
     state.sheet = 0;
+    state.viewSheet = 0;                    /* 1.1.6.1: a freshly loaded document shows sheet 1 */
+    state.viewIntraRows = 0;
+    state.viewBrowsing = false;
     positionEditor();
     applyColors();                          /* the rebuilt editor takes the live paper + ribbon */
     syncSheet(true);
@@ -1553,12 +2060,41 @@
       onFileChosen(e);
     });
 
-    /* clicking the paper (but not the text) puts the caret back in the document */
+    /* Clicking the paper outside the text column (margins, slot area) puts the typing point on
+       the nearest row and cell instead of doing nothing.
+       [1.1.6.1 D-4] Measured first, in Chromium 2026-10-15: a click ON the text is already
+       placed exactly by the engine's own hit test - at FIT zoom (0.87) and at 100%, before and
+       while browsing - so that path is deliberately left ALONE; replacing it with our own
+       arithmetic would put text selection and drag-selection at risk for no gain. (The Gate 1
+       PoC measured an offset in Safari; that remains a Safari item for the acceptance pass.)
+       What was genuinely broken is this: a click in the paper's margin only called focus() and
+       left the caret wherever it was. The mapping below uses document coordinates normalised by
+       1/z, so it is correct at every zoom step, and never touches the native text path. */
     el.paper.addEventListener("mousedown", function (ev) {
       if (helpBlocks()) return;                  /* §H the sheet owns this paper now */
-      if (ev.target === el.editor) return;
-      window.setTimeout(function () { if (el.editor) el.editor.focus(); }, 0);
+      if (ev.target === el.editor) return;       /* native hit test: exact, left untouched */
+      var x = ev.clientX, y = ev.clientY;
+      window.setTimeout(function () {
+        if (!el.editor) return;
+        el.editor.focus();
+        placeCaretFromPaperPoint(x, y);
+      }, 0);
     });
+
+    /* ================= 1.1.6.1 wheel browsing and browse suppression (R4 §2.2/§2.4, D-1)
+       The listener is registered with an explicit { passive: false }: Safari treats a
+       document-level wheel listener as passive otherwise, preventDefault is ignored, the page
+       scrolls as well and every displacement happens twice. It is bound on the document, not
+       on the sheet, so the wheel browses wherever the pointer is inside the machine. */
+    try { document.addEventListener("wheel", onWheel, { passive: false }); }
+    catch (errWheel) { document.addEventListener("wheel", onWheel, false); }
+
+    /* Any key ends a browse window at once, so the suppression can never swallow a genuine
+       navigation (a lost keyup cannot wedge it either - the window is only a timestamp).
+       keyup deliberately does NOT clear it: the stray keyup that belongs to the browsing
+       gesture itself is exactly the path that used to pull the view back (D-1). */
+    document.addEventListener("keydown", function () { if (!helpBlocks()) browseClear(); }, true);
+    document.addEventListener("click", function () { if (!helpBlocks()) browseClear(); }, true);
 
     /* §34/§36 FIT follows the viewport */
     var pending = false;

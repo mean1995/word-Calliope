@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Word Καλλιόπη</title>
 <link rel="stylesheet" href="style.css">
-<!-- Web App (1.1.5.2): installable from iPad Safari "Add to Home Screen" and macOS
+<!-- Web App (1.1.6.1): installable from iPad Safari "Add to Home Screen" and macOS
      Safari "Add to Dock". Every address below is relative to this file, because the
      published build lives in the /word-Calliope/ sub-path of GitHub Pages. -->
 <link rel="manifest" href="./manifest.webmanifest">
@@ -46,6 +46,15 @@
     </div>
     <div class="paper" id="paper">
       <div class="sheet-window" id="sheet-window"><!-- editor built by app.js --></div>
+      <!-- 1.1.6.1 hooks: the print head and the page counter exist, are positioned by contract
+           variables (UI-Delivery-1.1.6-r1/coordinates.json, r1 candidate values) and carry the
+           live state as attributes and text, but they are NOT PAINTED until the UI-integration
+           build sets data-ui-art="ready" on <html>. No artwork, no glyphs, no interaction:
+           pointer-events:none, aria-hidden, and hidden by @media print with the rest of .stage.
+           Both live inside .paper, which is one continuous editing context's window - they are
+           never document content, so TXT / SAVE / Recovery / Print / PDF cannot see them. -->
+      <div class="print-head" id="print-head" aria-hidden="true"></div>
+      <div class="page-counter" id="page-counter" aria-hidden="true">01/01</div>
     </div>
     <div class="rail-mark rail-mark-left" id="rail-left" aria-hidden="true"></div>
     <div class="rail-mark rail-mark-right" id="rail-right" aria-hidden="true"></div>

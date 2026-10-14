@@ -65,7 +65,30 @@
 
   /* build marker, readable from the console as getComputedStyle(document.documentElement)
      .getPropertyValue("--build") so a stale cached stylesheet can be told apart from a bug */
-  --build:1.1.5.2;
+  --build:1.1.6.1;
+
+  /* ---------------------------------------------------------------- 1.1.6.1 contract
+     Values below are the r1 CANDIDATE geometry from UI-Delivery-1.1.6-r1/coordinates.json,
+     expressed relative to the paper's top-left corner (the source file measures from the
+     machine frame's left edge, so its x values carry the paper offset 207.10659898477158).
+     Gate 2 has not run: none of this is verified against a real machine. The UI-integration
+     build replaces these numbers and sets data-ui-art="ready"; the behaviour code does not
+     change. Nothing here is painted while data-ui-art is absent. */
+  --print-head-x:76px;            /* coordinates.json head.positionRule, paper-relative:
+                                     207.10659898477158 + 96 - 20 = 283.10659898477158 */
+  --print-head-y:962px;           /* head top; the whole head stays below text lower bound 961.39 */
+  --print-head-w:40px;
+  --print-head-h:42.51716247139588px;
+  --counter-x:653.8651196519217px;  /* 860.9717186366933 - 207.10659898477158 */
+  --counter-y:1005.1138506163887px;
+  --counter-w:97.63596809282089px;
+  --counter-h:26.627991298042062px;
+
+  /* Forward line-feed animation (R4 §3.1). Y-3 is NOT confirmed: UI proposed 90ms with
+     cubic-bezier(.2,0,0,1) and coordinates.json marks it "VIC confirmation required", so the
+     values live here as contract variables, not as approved parameters. */
+  --feed-ms:90;
+  --feed-ease:cubic-bezier(.2,0,0,1);
 }
 
 *{box-sizing:border-box}
@@ -304,6 +327,47 @@ html,body{
   pointer-events:none;
 }
 
+/* --------------------------------------------------- 1.1.6.1 print head / page counter
+   Both are pure contract hooks in this build: they exist, they are positioned from the
+   variables above and they carry live state (html[data-print-head], the counter's text), but
+   they paint nothing until the UI-integration build sets data-ui-art="ready" on <html> and
+   gives .print-head its artwork. No interaction at all: pointer-events:none, so paper clicks
+   and drag-selection keep working (打字机UI技术侧需求 §2.4). Both sit inside .paper, so
+   @media print already hides them with .stage - they can never reach an output path. */
+.print-head,
+.page-counter{
+  position:absolute;
+  pointer-events:none;
+  z-index:2;
+  display:none;
+}
+.print-head{
+  left:calc(var(--print-head-x) + var(--print-head-col, 0) * 8px);
+  top:var(--print-head-y);
+  width:var(--print-head-w);
+  height:var(--print-head-h);
+}
+.page-counter{
+  left:var(--counter-x);
+  top:var(--counter-y);
+  width:var(--counter-w);
+  height:var(--counter-h);
+  /* the window is declared as 5 fixed character cells (AA/BB and E1/E1 are both 5), so a
+     value change never re-flows it (§5.7). The face is a SITE decision, not in --font-stack
+     (§5.9): the page-number font must not join the data-grid capability guard. */
+  font-family:var(--counter-font, "KalliopeLatin", ui-monospace, monospace);
+  font-size:18px;
+  line-height:var(--counter-h);
+  text-align:center;
+  letter-spacing:0;
+  font-variant-numeric:tabular-nums;
+  white-space:pre;
+}
+/* §4.2 the head is only shown when the caret is at the true document end (plus the Y-1 view
+   condition); the attribute is the state, the art layer is the UI's business. */
+html[data-print-head="active"][data-ui-art="ready"] .print-head{ display:block; }
+html[data-ui-art="ready"] .page-counter{ display:block; }
+
 /* ------------------------------------------------------------------ the paper
    §07 US Letter, 1in margins, 6.5 x 9in text area · §14 same box for print sheets */
 .paper{
@@ -394,11 +458,19 @@ html,body{
      highlight are still drawn by this control, which keeps native behaviour intact. */
   color:transparent;
   -webkit-text-fill-color:transparent;
-  /* 1.1.1: the native blinking caret is switched off (PM 2026-10-06). caret-color is the
-     standard way; because it proved unreliable on real Safari, .caret-mask covers the caret
-     as well - see the rail section. Presentation only. */
-  caret-color:transparent;
+  /* [1.1.6.1 V24] The native blinking caret comes back. 1.1.1 hid it (PM 2026-10-06, "the
+     actual caret" was to be the machine's own indicator); 1.1.6's agreed direction reverses
+     that - the textarea's own caret is restored and no simulated caret is introduced. It takes
+     the ribbon colour so it reads as ink on the sheet. The three layers that hid it are all
+     gone: this declaration, the inline caretColor in applyColors(), and .caret-mask (kept in
+     the DOM but never shown, so the UI-integration build can decide what to do with it). */
+  caret-color:var(--ribbon-color, #262522);
+  /* 1.1.6.1 (D-5 / R4 §2.5): keep the fallback declaration, add the structural one. Gate 1
+     measured that with a scrollable control box Safari forces ta.scrollTop and a rAF reset
+     cannot clear it; overflow:clip makes the control unscrollable, which is the only
+     structural fix. Same two-declaration pattern as .paper and .sheet-window. */
   overflow:hidden;
+  overflow:clip;
   display:block;
   -webkit-appearance:none;
   appearance:none;
