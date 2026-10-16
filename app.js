@@ -173,6 +173,8 @@
     pageView: false,            /* the full-page browse view owns the viewport (2026-10-16) */
     pageViewZoomIndex: null,    /* the reader's zoom, parked while it is locked to FIT */
     wps: false,                 /* WPS = the 1.1.5.2 page view; DEFAULT OFF (VIC 2026-10-16) */
+    wpsPanLimit: 0,             /* [2026-10-16 bug fix] rows the WPS sheet may be panned by; 0 = the
+                                   sheet fits the stage and the view stays page-quantised */
     layout: null,
     autoReturn: true,      /* §16 */
     zoomIndex: 0,
@@ -820,12 +822,36 @@
 
   function viewRow() { return state.viewSheet * ROWS_PER_SHEET + state.viewIntraRows; }
 
+  /* [2026-10-16 bug fix] In WPS the sheet is whole and page-aligned, so the view is quantised to
+     pages - unless the zoom has made the sheet taller than the box the stage clips to. Then a
+     slice of every page sits outside the clip with no way of reaching it (at ZOOM 150% only 37 of
+     the 54 rows were on screen) and the wheel appeared dead: it moved the view, the view moved the
+     page chrome, and the text did not move at all.
+     wpsPanLimit is how many rows the sheet may be panned by while it does not fit; at 0 (the sheet
+     fits, i.e. FIT / 75% / 100%) the view behaves exactly as it always has. */
+  function updateWpsPanLimit(z) {
+    if (!state.wps || !el.stage) { state.wpsPanLimit = 0; return; }
+    if (z === undefined || z === null) z = currentZoom();
+    var cs = window.getComputedStyle(el.stage);
+    var visible = el.stage.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    var over = PAPER_H * z - visible;
+    state.wpsPanLimit = over > 1 ? Math.ceil(over / (ROW_PX * z)) : 0;
+  }
+
+  /* The rows the WPS sheet is actually panned by. One reader for the three places that have to
+     agree (the flow's own position, the page chrome, and a paper click), so a panned page still
+     puts the caret where the pointer is. */
+  function wpsPanRows() {
+    if (!state.wps || state.wpsPanLimit <= 0) return 0;
+    return Math.min(state.viewIntraRows, state.wpsPanLimit);
+  }
+
   /* [2026-10-16] Where a document row sits in the stage's document coordinates. The skeuomorphic
      view pins the row standing at the print line (the sheet has fed out that far); the WPS view
      shows a whole page-aligned sheet, so a row sits at the top margin plus its distance from the
-     page's first row. */
+     page's first row - minus the pan, which is 0 while the whole sheet fits. */
   function rowTopPx(row) {
-    if (state.wps) return RAIL_MARGIN_PX + (row - state.viewSheet * ROWS_PER_SHEET) * ROW_PX;
+    if (state.wps) return RAIL_MARGIN_PX + (row - state.viewSheet * ROWS_PER_SHEET - wpsPanRows()) * ROW_PX;
     return PRINT_LINE_TOP_PX + (row - viewRow()) * ROW_PX;
   }
 
@@ -956,6 +982,16 @@
        turns the page: no feed to press out, no FIT lock, and no "return to the edited page" rule
        (that rule belongs to the skeuomorphic page view, which has a separate editing position). */
     if (state.wps) {
+      /* [2026-10-16 bug fix] A paging action owns the viewport for a moment, exactly like a wheel
+         gesture does (browseHold() is the same mechanism). The keyup that belongs to the very same
+         PageUp / PageDown gesture runs onCaretMoved -> syncSheet, which pulls the view straight
+         back to the caret's page: without this the physical key turned the page on keydown and the
+         keyup silently undid it, so the keys looked dead (measured: one PageUp keypress left the
+         view on the caret's page). The skeuomorphic branch below needs no hold - its page view
+         already blocks the snap-back through syncSheet's own !state.pageView test - and arming one
+         there would keep the view from following the caret for 250ms after an ordinary paging key
+         (the mechanical harness caught exactly that: M4). */
+      browseHold(BROWSE_HOLD_MS);
       var targetPage = state.viewSheet + direction;
       if (targetPage < 0 || targetPage > pages - 1) return false;
       setViewRow(targetPage * ROWS_PER_SHEET);
@@ -1082,8 +1118,9 @@
     if (!el.editor || !state.layout) return false;
     var p = documentPointFromClient(clientX, clientY);
     /* The point is measured ON THE SHEET, and the sheet moves: its own row index plus the
-       sheet's first document row gives the document row. */
-    var pageStartHere = state.viewSheet * ROWS_PER_SHEET;
+       sheet's first document row gives the document row. In WPS the sheet may also be panned
+       within the page while the zoom makes it taller than the stage (wpsPanRows()). */
+    var pageStartHere = state.viewSheet * ROWS_PER_SHEET + wpsPanRows();
     var row = pageStartHere + Math.floor((p.y - RAIL_MARGIN_PX) / ROW_PX);
     var colUnits = Math.floor((p.x - RAIL_MARGIN_PX) / RAIL_UNIT_PX);
     if (colUnits < 0) colUnits = 0;
@@ -1100,7 +1137,11 @@
      Nothing else moves the paper (P04: machine fixed, paper moves). */
   function positionEditor() {
     if (!el.flow) return;
-    var pageStart = state.viewSheet * ROWS_PER_SHEET;
+    /* [2026-10-16 bug fix] WPS may pan WITHIN the page: while the zoom makes the sheet taller than
+       the box the stage clips to, the flow is shifted by the panned rows as well, so the rows the
+       clip cuts off can be reached. wpsPanRows() is 0 whenever the whole sheet fits, which keeps
+       the page-aligned position byte-identical at FIT / 75% / 100%. */
+    var pageStart = state.viewSheet * ROWS_PER_SHEET + wpsPanRows();
     el.flow.style.top = (-(pageStart * ROW_PX)) + "px";
     applyPaperFeed(0);
     resetScroll();
@@ -1621,6 +1662,20 @@
     if (state.help) return;
     if (e.defaultPrevented) return;
 
+    /* [2026-10-16 bug fix] PAGE UP / PAGE DOWN are navigation, not input, and in WPS they must not
+       pass through the input moment below. There is no page view to leave in WPS, so all the
+       moment did was bounce the view back to the caret's page (and clear the browse hold) before
+       the pager ran - the pager could therefore never walk away from the caret: every press turned
+       one page and the next press started from the caret's page again. Handled here instead, so
+       the pair walks page by page from whatever page is on screen. The skeuomorphic mode keeps the
+       old order on purpose: there "any input returns to the editing position" is the ruling, and
+       its page view blocks the keyup snap-back by itself. */
+    if (state.wps && (e.key === "PageUp" || e.key === "PageDown")) {
+      e.preventDefault();
+      pageFlip(e.key === "PageDown" ? 1 : -1);
+      return;
+    }
+
     /* [1.1.6.1 R4 §2.3] The input moment: browsing ends and, if the view is showing another
        sheet, it returns to the caret BEFORE anything judges this keystroke - so the first key
        after a browse is treated exactly like normal writing and is never silently swallowed.
@@ -1737,6 +1792,14 @@
     el.stageInner.style.width = ((state.wps ? PAPER_W : MACHINE_W) * z) + "px";
     el.stageInner.style.height = ((state.wps ? PAPER_H : MACHINE_H) * z) + "px";
     el.btnZoom.textContent = "ZOOM " + ZOOM_STEPS[state.zoomIndex].label;
+    /* [2026-10-16 bug fix] How far the WPS sheet may be panned at this scale. The transform above
+       is what decides it, so it is recomputed on every zoom / mode / viewport change. Zooming back
+       out to a scale where the whole sheet fits must not leave the sheet parked mid-page: the pan
+       is only meaningful while the sheet does not fit. */
+    updateWpsPanLimit(z);
+    if (state.wps && state.wpsPanLimit === 0 && state.viewIntraRows !== 0) {
+      setViewRow(state.viewSheet * ROWS_PER_SHEET);
+    }
     /* 1.1.1: the rail marks keep their 4x8px size but must follow the paper's new scale */
     if (!helpHidesRails) {
       updateRailMarks();
@@ -2412,7 +2475,10 @@
       pending = true;
       window.requestAnimationFrame(function () {
         pending = false;
-        if (ZOOM_STEPS[state.zoomIndex].value === null) applyZoom();
+        if (ZOOM_STEPS[state.zoomIndex].value === null) { applyZoom(); return; }
+        /* [2026-10-16 bug fix] a fixed zoom still has to re-derive the WPS pan limit: the stage is
+           the box the sheet is clipped to, and its height changes with the viewport. */
+        if (state.wps) updateWpsPanLimit();
       });
     }
     window.addEventListener("resize", onViewportChange);

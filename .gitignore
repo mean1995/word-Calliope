@@ -11,3 +11,6 @@ Dev-Memo-0.1.2/_dev-fonts/*.woff2
 
 # local tooling (not part of the release)
 .tools/
+
+# 推送版存档（推送后自动覆盖，可离线运行；不参与推送）
+Release/

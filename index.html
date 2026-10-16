@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-ui-art="ready">
+<html lang="en" data-ui-art="ready" data-machine-front="whole">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -71,6 +71,13 @@
         <img class="machine-art" src="assets/machine/machine-rear.png" alt="">
       </div>
 
+      <!-- NOTE (2026-10-16): a code-side "machine cavity backing" briefly lived here to cover the band
+           above the sheet's top edge while the sheet is still mostly inside the machine. VIC rejected
+           that stand-in after seeing it on a real device and it is now UI R6's job instead: the REAR
+           layer's cavity is to be extended up to the machine frame top (see
+           UI-Delivery-1.1.6-r6/CHANGE-REQUEST-from-Dev-to-UI-1.1.6-r6.md). Do not re-add a plate here.
+           The band is visible again until R6 lands - that is deliberate. -->
+
       <!-- the sheet: .paper-clip is the machine's throat. It carries no transform any more (the
            frame has it) and still cuts the sheet off at 1in + 54 rows = 960 document px, so only
            the part of the sheet that has come OUT of the machine is drawn. -->
@@ -90,16 +97,28 @@
       <!-- machine parts that never move relative to the machine: the print head (its own artwork,
            independent of the body - §4.1 LOCKED), the front layer and the page-counter text. -->
       <div class="machine-fixed" id="machine-fixed" aria-hidden="true">
+        <!-- [paperPresentation, UI R2/R3 contract · VIC 2026-10-16] The blank continuation of the
+             sheet. The design extends the visible paper face from the text clip (doc y 960) down to
+             the front lip (997.4213), so the front lip overlaps PAPER, not the black roller behind
+             it. Without this, doc y 960..997.42 showed 86,941 near-black platen pixels on the
+             machine body. It carries no text, adds no editable row and changes neither the sheet
+             (816x1056) nor the grid; it takes the current paper colour from --paper-color
+             (applyColors), so PAPER WHITE / CANARY follow automatically. It sits first in this box,
+             i.e. behind the print head and the front layer. -->
+        <div class="paper-underlap" id="paper-underlap"></div>
         <div class="print-head" id="print-head"><img class="head-art" src="assets/machine/printhead.png" alt=""></div>
-        <!-- Front layer in three clipped slices (see .guard-* in style.css): slices 1+2 keep only
-             what is OUTSIDE the sheet above the throat, slice 3 keeps everything below the throat,
-             so the delivered bail crossbar and the tower edges cannot cover the sheet. -->
+        <!-- [CR-6 / UI R3, 2026-10-16] The front layer is ONE unclipped <img> again: R3 re-exported it
+             with the bail and both rubber wheels ABOVE the print head (doc y 906.29..941.21), which
+             VIC ruled may cover earlier text - so the reading guard is retired and <html> carries
+             data-machine-front="whole". The three clipped slices below are kept only as the
+             documented one-line fallback switch (see .guard-* in style.css); they are display:none
+             while that attribute is set. What must never be covered is the print-line row
+             (doc y 944..960) - which is what M14 now asserts against this image. -->
         <div class="machine-front" aria-hidden="true">
           <img class="machine-art guard-left" src="assets/machine/machine-front.png" alt="">
           <img class="machine-art guard-right" src="assets/machine/machine-front.png" alt="">
           <img class="machine-art guard-low" src="assets/machine/machine-front.png" alt="">
-          <!-- the unclipped slice: shown instead of the three above once <html> carries
-               data-machine-front="whole" (front layer re-exported with the bail below the throat) -->
+          <!-- the live slice: unclipped, shown because <html> carries data-machine-front="whole" -->
           <img class="machine-art guard-whole" src="assets/machine/machine-front.png" alt="">
         </div>
         <div class="page-counter" id="page-counter">01/01</div>

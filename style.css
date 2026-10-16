@@ -251,7 +251,11 @@ html[data-wps="on"] #btn-wps{box-shadow:inset 4px 0 0 0 #C8A200}
 /* ------------------------------------------------------------------ stage / zoom
    §34 Zoom changes screen rendering only · §35 print CSS is independent of it     */
 .stage{
-  padding:18px;
+  /* [VIC 2026-10-16] No bottom padding: the machine must come all the way down to the viewport's
+     bottom edge instead of floating 18px above it (the "机身悬浮于底部" report). Left and right are
+     unchanged, so fitZoom()'s horizontal budget (vw - 36) is untouched; vertically there are now
+     18px of unused height at FIT, and .stage-inner's -6px margin below spends part of it. */
+  padding:18px 18px 0;
   display:flex;
   justify-content:center;
   /* [1.1.6.1 UI integration] The machine frame is anchored to the BOTTOM: at FIT it fills the
@@ -277,8 +281,13 @@ html[data-wps="on"] #btn-wps{box-shadow:inset 4px 0 0 0 #C8A200}
    JavaScript. flex:0 0 auto stops the flex item from shrinking below that size - without it the
    box is squeezed to the stage's content width at ZOOM 150% on a narrow viewport, and a rail
    anchored to a squeezed box drifts off the paper's centre (measured: rail centre 30px left of
-   the paper centre). It is a no-op whenever the paper fits. */
-.stage-inner{position:relative; flex:0 0 auto}
+   the paper centre). It is a no-op whenever the paper fits.
+   [VIC 2026-10-16] -6px: the machine is bottom-aligned (align-items:flex-end), so this pulls its
+   bottom edge 6px PAST the viewport's bottom edge, where .stage's overflow:clip cuts it. That is
+   what "贴底，甚至微微不可见一点点" asks for, and it also takes the front layer's baked dark bottom
+   rim (doc y 1085..1086, alpha ~248) off screen - it read as a black line while the machine
+   floated above the page background. */
+.stage-inner{position:relative; flex:0 0 auto; margin-bottom:-6px}
 
 /* ------------------------------------------------- 1.1.6.1 UI integration: the machine
    The delivered art, placed from the r1 contract. .machine-frame is the ONE scaled box: document
@@ -324,30 +333,40 @@ html[data-wps="on"] #btn-wps{box-shadow:inset 4px 0 0 0 #C8A200}
   user-select:none;
   -webkit-user-drag:none;
 }
-/* The reading guard (§11.2 "不得让机身遮住正文或纸张", and the option the UI package itself
-   names: "设置读字避让"). The delivered front layer carries machine parts ABOVE the throat that
-   fall on the sheet: a paper-bail crossbar straight across the text column (measured 2026-10-16:
-   doc y 896..912 fully opaque over the column, plus two ~50px posts at text rows 49 and 51 - the
-   DELIVERY-README §7 defect) and the inner edges of the side towers over the sheet's margins.
-   So the front layer is drawn in three DISJOINT clipped slices that keep only
-     (1) left of the sheet, above the throat      (2) right of the sheet, above the throat
-     (3) everything below the throat
-   and therefore paint NOTHING on the part of the sheet that is visible (x 207.11..1023.11,
-   y < 960). Below the throat the sheet is already cut by .paper-clip, so slice 3 may cover it
-   freely - that is the machine the sheet has come out of. Nothing of the delivered art is hidden
-   that was not on the sheet. --guard-inset pulls every slice 1 document px away from the sheet:
-   the first integrated run measured a 1-2 screen px anti-aliased bleed at the clip edges, which
-   the pixel guard in mechanical-harness M13 now checks for (0 pixels may change on the sheet). When UI re-exports the front layer with the bail below the throat,
-   the three slices collapse back into one <img> with no clip. */
+/* The reading guard - RETIRED by CR-6 / UI R3 (2026-10-16). Kept only as a documented fallback.
+   History: the r1/r2 front layer carried the paper bail straight across the text column (doc y
+   896..912 fully opaque over it, plus two posts at rows 49/51 - DELIVERY-README §7), which broke
+   §11.2 "不得让机身遮住正文或纸张". While that art was in use the front layer was drawn as three
+   DISJOINT clipped slices - (1) left of the sheet above the throat, (2) right of the sheet above
+   the throat, (3) everything below the throat - so that they painted nothing on the visible sheet
+   (x 207.11..1023.11, y < 960); --guard-inset pulled each slice 1 document px clear of the sheet to
+   kill a measured 1-2 screen px anti-aliased bleed at the clip edges.
+   CR-6 moved the bail and both rubber wheels ABOVE the print head; UI R5 (CR-10) then lifted the
+   whole group a further 33.5 source px so the silver rail's centre sits on the line VIC drew, which
+   puts the group at doc y 886.47..921.38 (it was 906.29..941.21 after CR-6). VIC ruled that covering
+   earlier text is intended, so the guard must NOT run any more: index.html now
+   sets data-machine-front="whole" on <html> and the single unclipped .guard-whole <img> is what
+   paints. The three slices stay defined (and their corrected bottom inset from the 2026-10-16 seam
+   fix is preserved) so the fallback remains a one-attribute switch. The invariant that replaced
+   "nothing on the sheet" is: **the print-line row doc y 944..960 stays clear** - asserted against
+   the image itself by mechanical-harness M14. */
 .machine-front .guard-left{
-  clip-path:inset(0 calc(100% - var(--sheet-left) + var(--guard-inset)) calc(var(--throat-local) + var(--guard-inset)) 0);
+  clip-path:inset(0 calc(100% - var(--sheet-left) + var(--guard-inset)) calc(100% - var(--throat-local) - var(--guard-inset)) 0);
 }
 .machine-front .guard-right{
-  clip-path:inset(0 0 calc(var(--throat-local) + var(--guard-inset)) calc(var(--sheet-right) + var(--guard-inset)));
+  clip-path:inset(0 0 calc(100% - var(--throat-local) - var(--guard-inset)) calc(var(--sheet-right) + var(--guard-inset)));
 }
 .machine-front .guard-low{
   clip-path:inset(calc(var(--throat-local) + var(--guard-inset)) 0 0 0);
 }
+/* [1.1.6.1 fix, VIC 2026-10-16] The two upper slices must stop exactly where slice 3 starts, or the
+   band between them is painted by NOBODY and the page background (#8d8a80) shows through the
+   machine on BOTH sides of the sheet. The original bottom inset was written as
+   `var(--throat-local) + var(--guard-inset)`, but inset() measures the bottom from the element's
+   BOTTOM edge, so it cut at doc y 943.90 while slice 3 began at 961.00 - a measured 17.10 doc px
+   tall hole (356 background px per row across doc y 944.8..960.8, versus a ~50 px baseline outside
+   the body's silhouette). The correct value is `100% - throat - inset`, which keeps y < throat +
+   inset: exactly adjacent to slice 3, still disjoint, and 1 document px clear of the sheet in x. */
 /* The whole-image mode: set data-machine-front="whole" on <html> when the front layer is
    re-exported with the bail out of the text range, and the three guard slices below collapse
    back into one unclipped <img> (see .guard-whole). Nothing else changes. */
@@ -493,9 +512,19 @@ html[data-wps="on"]{
   --paper-throat:var(--sheet-h);
 }
 html[data-wps="on"] .machine-frame{ width:var(--sheet-w); height:var(--sheet-h); }
+/* [2026-10-16 bug fix] The stage anchors its flex item to the BOTTOM so the skeuomorphic machine
+   stays glued to the viewport's bottom edge and grows off the TOP above FIT - right for a
+   typewriter, where the line being typed is what must stay visible. WPS is the opposite reading
+   order: it is a page, and its FIRST rows are at the top. Bottom-anchored, ZOOM 125% / 150% pushed
+   the start of the page off the top of the viewport with no way to bring it back (measured at
+   150%: the sheet's top sat at -493px, so the first 17 of 54 rows were unreachable - the reported
+   "cannot get back to the earlier rows"). Top-aligned, the page starts on screen and the clip
+   takes the bottom, which the wheel can then pan to. */
+html[data-wps="on"] .stage{ align-items:flex-start; }
 html[data-wps="on"] .machine-layer,
 html[data-wps="on"] .machine-front,
 html[data-wps="on"] .print-head,
+html[data-wps="on"] .paper-underlap,
 html[data-wps="on"] .page-counter{ display:none !important; }
 html[data-wps="on"] #editor{ caret-color:transparent; }
 
@@ -536,6 +565,12 @@ html[data-wps="on"] #editor{ caret-color:transparent; }
    --paper-throat is the throat's height in document px: 1in margin + 54 rows = 960, the bottom
    of the row the print line (r1 printLineY 956) sits in. It is a contract value: Gate 2 may move
    it together with FEED_ANCHOR_ROW, and the two must stay in step. */
+/* NOTE (2026-10-16): a code-side .machine-cavity plate briefly lived here to cover the band above
+   the sheet's top edge while the sheet is still most of the way inside the machine. VIC rejected
+   that stand-in after seeing it on a real device; it is now UI R6's job - the REAR layer's cavity is
+   to be extended up to the machine frame top
+   (UI-Delivery-1.1.6-r6/CHANGE-REQUEST-from-Dev-to-UI-1.1.6-r6.md). Do not re-add a plate here:
+   the band stays visible until R6 lands, by VIC's decision. */
 .paper-clip{
   position:absolute;               /* inside .machine-frame, at the sheet's r1 x */
   left:var(--paper-x);
@@ -569,11 +604,60 @@ html[data-wps="on"] #editor{ caret-color:transparent; }
   height:0;
   z-index:3;                       /* above .paper-clip (DOM order puts the front layer last) */
 }
+/* [paperPresentation, UI R2-R4 contract · VIC 2026-10-16] The blank continuation of the sheet: the
+   visible paper face runs from the text clip (doc y 960) down to the front lip, so the lip overlaps
+   paper rather than the black roller behind it. Measured before this existed: doc y 960..997.42
+   inside the sheet's width was 88,320 rear-layer pixels, 86,941 of them near-black - the "black band
+   on the machine body" VIC saw in the browser on 2026-10-16.
+   The endpoint is the contract's paperPresentation.visualUnderlapBottom, which UI R4 (CR-7) moved
+   from 997.4213197969543 to **983.2197244379986**: the front lip was raised from mother y440 to
+   y416 so the sheet's visible bottom edge and the print head's lower half go BEHIND the front shell
+   (VIC: "明显纸、打印头的一部分，都应该在机身内"). The underlap now ends where the new lip starts.
+   Geometry, all document px: x = the sheet's left edge (this box is anchored there, so left:0 is
+   the sheet), width = --sheet-w, top = the throat (--throat-local inside the art, placed at
+   --machine-art-y), height = 983.2197244379986 - 960 = 23.2197244379986.
+   It is blank by construction: no glyphs, no editable row, no change to the sheet or the grid, and
+   being inside .stage it can never reach TXT, SAVE, Recovery, Print or PDF. Colour comes from
+   --paper-color, which applyColors() keeps in step with PAPER WHITE / CANARY. */
+/* [2026-10-16, VIC report "光标下的阴影线去掉"] The strip's TOP edge must tuck UNDER the sheet, not
+   merely meet it: with top exactly at the throat (doc y 960) its first device row was only ~half
+   covered by the anti-aliased edge, so it blended with the black roller behind and VIC saw a single
+   grey line (measured 189,189,187 against the sheet's 248,248,246) right below the caret, across the
+   whole sheet width. Pulling the top 1 document px up puts that half-covered row behind the sheet
+   (which still paints to 960), so the visible strip starts clean at 960. The bottom edge is
+   unchanged (983.2197244379986), hence height = 23.2197244379986 + 1. */
+.paper-underlap{
+  position:absolute;
+  left:0;                                    /* the sheet's left edge inside .machine-fixed */
+  top:calc(var(--machine-art-y) + var(--throat-local) - 1px);   /* doc y 959: 1px under the sheet */
+  width:var(--sheet-w);
+  height:24.2197244379986px;                 /* bottom stays at doc y 983.2197244379986 */
+  background:var(--paper-color);
+  pointer-events:none;
+}
 .print-head,
 .page-counter{
   position:absolute;
   pointer-events:none;
   display:none;
+}
+/* [2026-10-16 perf, VIC report] Keep the delivered machine art as its own textures.
+   Why: everything below is STATIC (no JS ever writes these elements' styles - see the V35 note in
+   app.js) and it is painted ON TOP of the live sheet. Since CR-6 retired the reading guard, the
+   front layer paints 32,565 px INSIDE the visible text area (the bail, its two posts and the tower
+   inner edges) where the guard used to paint nothing at all. With both in the same paint layer, a
+   text repaint re-rasterises that overlapping art on every keystroke - measured style churn is
+   unchanged (11 writes / 10 keys, no forced reflow), so the cost is paint, not JS.
+   With this hint the art is rasterised once and merely composer-blended afterwards.
+   NO VISUAL CHANGE: same pixels, same position, same scale, same DOM/paint order - only the moment
+   of rasterisation moves. One thing to eyeball after a ZOOM step: Chrome re-rasterises a promoted
+   layer when the frame's scale settles, so the machine must stay as crisp as before.
+   Revert = delete this one rule. */
+.machine-layer,
+.machine-front,
+.print-head,
+.paper-underlap{
+  will-change:transform;
 }
 .print-head{
   left:calc(var(--print-head-x) + var(--print-head-col, 0) * 8px);
