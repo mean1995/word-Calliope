@@ -168,6 +168,10 @@ html,body{
      makes that class of bug impossible rather than merely absent; print resets it below. */
   overflow:hidden;                 /* fallback */
   overflow:clip;
+  /* [1.1.6.1 UI integration] The body is a column so .stage can take the height the bar leaves,
+     which is what lets the machine frame be anchored to the BOTTOM of the viewport (below). */
+  display:flex;
+  flex-direction:column;
 }
 
 /* ------------------------------------------------------------------ control bar
@@ -178,6 +182,8 @@ html,body{
    rules are gone. A single full-width track keeps the Primary Controls centred on the browser
    viewport itself (measured offset 0.0), with no JavaScript positioning involved. */
 .bar{
+  position:relative;
+  z-index:2;                       /* the sheet may never paint over the controls */
   display:grid;
   grid-template-columns:minmax(0,1fr);
   align-items:center;
@@ -241,7 +247,21 @@ html,body{
   padding:18px;
   display:flex;
   justify-content:center;
-  align-items:flex-start;
+  /* [1.1.6.1 UI integration] The machine frame is anchored to the BOTTOM: at FIT it fills the
+     stage exactly, below FIT the slack collects ABOVE the sheet (never a machine floating in
+     empty space), and above FIT the frame grows off the TOP of the viewport while the machine,
+     the slot, the page counter and the print line stay visible - which is what a typewriter
+     wants: you always see the line you are typing and the machine it comes out of. Before this
+     the frame was top-aligned, so at 100% the machine was half cut and at 125/150% it was
+     entirely below the fold. */
+  align-items:flex-end;
+  flex:1 1 auto;
+  min-height:0;
+  /* Above FIT the frame grows off the TOP, so the stage has to clip it: without this the sheet
+     paints over the control bar (later sibling) and swallows its clicks. The bar also gets its
+     own paint layer below. */
+  overflow:hidden;
+  overflow:clip;
   /* 1.1.1: the stage is the container the machine badge measures its slot against */
   container-type:inline-size;
 }

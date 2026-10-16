@@ -285,6 +285,45 @@ function wheel(page, dy) {
   checkTrue("T9 no machine layer is drawn on the visible sheet",
             machineA.sheetHits.length === 0, JSON.stringify(machineA.sheetHits));
 
+  /* ---- T11 the machine is on screen at EVERY zoom step (1.1.6.1 UI integration) -----------
+     The frame is bottom-anchored inside the stage: at FIT it fills it, below FIT the slack goes
+     above the sheet, above FIT the frame grows off the top - so the machine, the slot, the page
+     counter and the print line must be visible at all five steps, and the page must still not
+     scroll (R10). Before that anchoring, 100% showed only the machine's upper half and 125/150%
+     put it entirely below the fold. */
+  var zoomSteps = ["ZOOM FIT", "ZOOM 75%", "ZOOM 100%", "ZOOM 125%", "ZOOM 150%"];
+  var zoomReport = [];
+  for (var zi = 0; zi < zoomSteps.length; zi++) {
+    if (zi > 0) { await page.click("#btn-zoom"); await page.waitForTimeout(150); }
+    zoomReport.push(await page.evaluate(function () {
+      var fr = document.getElementById("machine-frame").getBoundingClientRect();
+      var z = fr.width / 1230.2131979695432;
+      var counter = document.getElementById("page-counter").getBoundingClientRect();
+      var printTop = fr.top + 944 * z, printBottom = fr.top + 960 * z;
+      var machineTop = fr.top + 812.8005801305294 * z;
+      return {
+        label: document.getElementById("btn-zoom").textContent.trim(),
+        machineTop: Math.round(machineTop), frameBottom: Math.round(fr.bottom),
+        printTop: Math.round(printTop), printBottom: Math.round(printBottom),
+        counterTop: Math.round(counter.top), counterBottom: Math.round(counter.bottom),
+        vh: window.innerHeight, gapBelow: Math.round(window.innerHeight - fr.bottom),
+        scrollH: document.documentElement.scrollHeight, scrollY: window.scrollY
+      };
+    }));
+  }
+  checkTrue("T11 the machine, the print line and the counter are visible at every zoom step",
+            zoomReport.every(function (r) {
+              return r.machineTop < r.vh && r.printBottom > 0 && r.printTop < r.vh &&
+                     r.counterTop >= 0 && r.counterBottom <= r.vh;
+            }), JSON.stringify(zoomReport));
+  checkTrue("T11 the machine base is anchored the same 18px above the viewport bottom at every step",
+            zoomReport.every(function (r) { return Math.abs(r.gapBelow - 18) <= 1; }),
+            JSON.stringify(zoomReport.map(function (r) { return [r.label, r.gapBelow]; })));
+  checkTrue("T11 the page still does not scroll at any zoom step (R10)",
+            zoomReport.every(function (r) { return r.scrollY === 0 && r.scrollH <= r.vh; }),
+            JSON.stringify(zoomReport.map(function (r) { return [r.label, r.scrollH, r.vh, r.scrollY]; })));
+  await page.evaluate(function () { document.getElementById("btn-zoom").click(); });   /* back to FIT */
+  await page.waitForTimeout(120);
   /* ---- T10 output isolation -------------------------------------------------- */
   await seed(page, ROWS);
   s = await snapshot(page);
