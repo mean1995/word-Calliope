@@ -15,9 +15,11 @@
   src:url("assets/fonts/font-cjk.woff2") format("woff2");
   font-weight:400; font-style:normal; font-display:swap;
 }
-/* Primary-Control face (1.1.1): Doto instantiated at ROND 100 / wght 400, subset to the 39 code
-   points the nine controls can display, renamed KalliopeButton (SIL OFL 1.1 - the full notice
-   ships as assets/fonts/LICENSE-DOTO.txt). It is deliberately NOT part of --font-stack: the
+/* Primary-Control face (1.1.1, subset widened 2026-10-16): Doto instantiated at ROND 100 /
+   wght 400, renamed KalliopeButton (SIL OFL 1.1 - the full notice ships as
+   assets/fonts/LICENSE-DOTO.txt). It carries 65 code points now: A-Z, a-z, 0-9, space, "-", "%" -
+   the two new Primary Controls are labelled PgUp / PgDn and need the lowercase, which the Doto
+   face must draw itself rather than falling back to a system monospace mid-word. It is deliberately NOT part of --font-stack: the
    document slots, the paper and the print sheets keep KalliopeLatin / KalliopeCJK, and a
    failure to load this decorative face must never reach the data-grid capability guard.
    font-display:block avoids a label-width jump; the local file resolves immediately. */
