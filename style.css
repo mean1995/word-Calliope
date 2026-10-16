@@ -113,6 +113,22 @@
   --counter-font:"KalliopeCounter", "KalliopeLatin", ui-monospace, monospace;
   --counter-font-size:25px;
 
+  /* ------------------------------------------------------------ 1.1.6.1 UI integration
+     The machine frame (UI-Delivery-1.1.6-r1/coordinates.json, r1 CANDIDATE). Everything below
+     is document px measured from the machine frame's top-left corner, which is 207.10659898477158
+     to the LEFT of the sheet. Gate 2 has not run: these are the delivered numbers, placed as
+     delivered, and nothing here is approved by a real-device pass. */
+  --paper-x:207.10659898477158px;            /* the sheet's x inside the machine frame */
+  --machine-origin-x:-207.10659898477158px;  /* frame origin relative to the sheet's left edge */
+  --machine-w:1230.2131979695432px;          /* frame width (= 2079 source px x 816/1379) */
+  --machine-h:1092.0980420594634px;          /* frame height: sheet top to machine bottom */
+  --machine-art-y:812.8005801305294px;       /* both layer images inside the frame */
+  --machine-art-h:279.2980420594634px;       /* 472 source px x the same 0.591733 factor */
+  --sheet-left:207.10659898477158px;         /* the sheet's rect in frame coords */
+  --sheet-right:1023.10659898477158px;
+  --throat-local:147.1994198694706px;        /* 960 - 812.8005801305294: the throat inside the art */
+  --guard-inset:1px;                         /* anti-aliasing bleed measured at the clip edges */
+
   /* The machine's throat: the bottom edge of the row the print line sits in, in document px
      (1in margin + 54 rows = 960; printLineY 956 is 12px into that last row). Everything below
      belongs to the machine, so the sheet is cut off there and only the part that has come out
@@ -230,119 +246,76 @@ html,body{
    the paper centre). It is a no-op whenever the paper fits. */
 .stage-inner{position:relative; flex:0 0 auto}
 
-/* ------------------------------------------------------------------ machine stage (1.1.1)
-   Application chrome around the paper: the machine-body badge and the two rail marks that
-   flank the visual line the caret is on. All of it stays out of the paper DOM, the TXT,
-   Recovery, Print and PDF - @media print hides the whole .stage. Decorative only: no state,
-   no input handling, no animation.
-   Badge geometry (1.1.3, superseding the 1.1.1 geometry of PM ruling §4): 49px high, i.e.
-   1.75x the 1.1.1 value of 28px; right edge still 80px left of the paper's left edge, and a
-   fixed screen position vertically: badge centre = paper visual top + 409.5px.
-   409.5px is half of the paper's visual height at 1440 x 900 / ZOOM FIT (819px), i.e. the
-   place the badge occupies on first opening. It is deliberately a frozen number, not a
-   percentage: nothing moves the badge afterwards - not Document ZOOM (the paper grows, the
-   badge stays), not page turning, not the text. Recorded 2026-10-07. */
-.paper{z-index:1}
-
-/* The badge has exactly two states: visible at its intended size, or hidden (PM ruling §4).
-   Visible only while the paper's left-side slot can hold
-     rendered logo width 149.3241px + 80px paper clearance + 24px outer breathing room = 253.32px
-   measured from the viewport's left edge to the paper's visual left edge.
-   (1.1.3: 149.3241 = 85.3281 x 49/28. The larger threshold costs the 125% step on a 1440px
-   viewport, which 28px still held - accepted as the price of the larger badge.)
-   .machine-slot expresses that slot as a container so the condition follows the real layout:
-   it spans viewport-left-edge -> paper-left-edge and is 0px tall, so it cannot affect layout
-   (50cqw = half of .stage's content box, 50% = half of the paper's visual width, +18px is the
-   stage's own left padding). Progressive enhancement, as ruled: without container query support
-   the rule below never applies and the badge simply stays hidden. */
-.machine-slot{
-  position:absolute;
-  right:100%;
-  top:0;
-  height:0;
-  width:calc(50cqw - 50% + 18px);
-  container-type:inline-size;
+/* ------------------------------------------------- 1.1.6.1 UI integration: the machine
+   The delivered art, placed from the r1 contract. .machine-frame is the ONE scaled box: document
+   ZOOM is a transform here (moved up from the throat, R4 §6.2), so machine, sheet and chrome share
+   one scale, and it is what fitZoom() fits - the delivery's own device budget assumes exactly that
+   (FIT = (viewport height - 81) / 1092.098). Stacking is the delivery's order: rear layer -> live
+   sheet -> print head -> front layer -> page-counter text. Every layer is decorative chrome:
+   pointer-events:none, aria-hidden, and @media print hides .stage, so none of it reaches TXT,
+   SAVE, Recovery, Print or PDF. Until data-ui-art="ready" is set on <html> (this build does set
+   it) the layers are not painted at all. */
+.machine-frame{
+  position:relative;
+  width:var(--machine-w);
+  height:var(--machine-h);
+  transform-origin:top left;
 }
-.machine-logo{
+.machine-layer,
+.machine-front{
   position:absolute;
-  right:80px;                     /* logo right edge 80px left of the paper's left edge */
-  top:385px;                      /* 1.1.3 frozen: 409.5px badge centre - 49/2; see the note above */
-  height:49px;                    /* 1.1.3: 1.75x the 1.1.1 28px; width:auto keeps the ratio */
-  width:auto;
-  display:none;                   /* the approved default state: hidden */
-  pointer-events:none;
-}
-@container (min-width:253.32px){
-  .machine-logo{display:block}
-}
-
-/* ------------------------------------------------------------------ rail marks (1.1.1)
-   Two black triangles marking the visual line the caret is on:
-     left  triangle: points right, its right tip 8 character cells left of the first cell
-     right triangle: points left,  its left tip 6 character cells right of the last cell
-   Both are 4x8 CSS px - half of the 8x16px Latin document cell - and are vertically centred
-   on that line. Both gaps are document measurements (left 8 x 8px, right 6 x 8px), so they
-   scale with the text and always read as that many characters; only the 4x8px mark size is a
-   screen-space measurement that never scales with document ZOOM. Only the positions follow the
-   paper (app.js updateRailMarks()).
-   Pure #000000, flat, no line, no plate, no shadow, no gradient, no border, no animation,
-   and deliberately independent of PAPER / RIBBON. On an empty visual line only the leading
-   mark is shown (the caret is still on that line, but there is no last character cell for a
-   trailing mark); both marks are hidden only when there is no line to mark at all. */
-.rail-mark{
-  position:absolute;
-  width:4px;
-  height:8px;
-  background:#000000;
-  z-index:2;                      /* above the paper: the marks sit in its margins */
+  width:var(--machine-w);
+  height:var(--machine-h);
   display:none;
   pointer-events:none;
 }
-.rail-mark-left{clip-path:polygon(0 0, 100% 50%, 0 100%)}
-.rail-mark-right{clip-path:polygon(100% 0, 0 50%, 100% 100%)}
-
-/* ------------------------------------------------------------------ typewriter position line (1.1.1)
-   The typewriter's carriage rail: a red underline ending at the caret, always six character
-   cells long, plus a second segment starting 1 cell to the right of the caret and 3 cells
-   long. Both lengths are fixed, so near the start of a row the left part runs on into the
-   paper's left margin and near the end of a row the right part runs on into the right margin
-   instead of shortening. Both track the caret on every edit, caret move, sheet change and
-   document ZOOM, and both are hidden only while there is no insertion point. Width, height and position are document measurements (they scale with the
-   paper like the text); the colour is fixed red and deliberately does not follow RIBBON or
-   PAPER. Presentation only: chrome outside the paper DOM, no state, nothing written back,
-   and it is excluded from TXT, Recovery, SAVE, Print and PDF with the rest of the stage. */
-.type-line{
+.machine-layer{ left:0; top:0; }                          /* frame coordinates */
+.machine-front{ left:var(--machine-origin-x); top:0; }    /* inside .machine-fixed: sheet coords */
+.machine-art{
   position:absolute;
-  height:2px;
-  background:#cc0000;
-  z-index:2;
-  display:none;
+  left:0;
+  top:var(--machine-art-y);
+  width:var(--machine-w);
+  height:var(--machine-art-h);
+  display:block;
   pointer-events:none;
+  user-select:none;
+  -webkit-user-drag:none;
 }
-/* the two graduations stand on the rail and rise into the character cell: one full character
-   height at two character widths left of the caret, one half height at four widths left.
-   Their stroke width, heights and offsets are document measurements, so they scale with the
-   paper like the rail itself (app.js updateTypeLine()). */
-.type-tick{
-  position:absolute;
-  bottom:100%;              /* bottom edge on the rail's top edge */
-  width:2px;
-  background:#cc0000;
-}
-.type-tick-long{height:16px}
-.type-tick-short{height:8px}
-
-
-/* The rail is the caret's row plus the two rows above it, drawn as one unit. */
-.caret-mask{
-  position:absolute;
-  width:2px;
-  height:16px;
-  background:var(--paper-color);   /* paper-coloured, so it is invisible on the sheet */
-  z-index:1;                       /* above .paper (same z-index, later in DOM), below the rail */
-  display:none;
+.head-art{
+  display:block;
+  width:100%;
+  height:100%;
   pointer-events:none;
+  user-select:none;
+  -webkit-user-drag:none;
 }
+/* The reading guard (§11.2 "不得让机身遮住正文或纸张", and the option the UI package itself
+   names: "设置读字避让"). The delivered front layer carries machine parts ABOVE the throat that
+   fall on the sheet: a paper-bail crossbar straight across the text column (measured 2026-10-16:
+   doc y 896..912 fully opaque over the column, plus two ~50px posts at text rows 49 and 51 - the
+   DELIVERY-README §7 defect) and the inner edges of the side towers over the sheet's margins.
+   So the front layer is drawn in three DISJOINT clipped slices that keep only
+     (1) left of the sheet, above the throat      (2) right of the sheet, above the throat
+     (3) everything below the throat
+   and therefore paint NOTHING on the part of the sheet that is visible (x 207.11..1023.11,
+   y < 960). Below the throat the sheet is already cut by .paper-clip, so slice 3 may cover it
+   freely - that is the machine the sheet has come out of. Nothing of the delivered art is hidden
+   that was not on the sheet. --guard-inset pulls every slice 1 document px away from the sheet:
+   the first integrated run measured a 1-2 screen px anti-aliased bleed at the clip edges, which
+   the pixel guard in mechanical-harness M13 now checks for (0 pixels may change on the sheet). When UI re-exports the front layer with the bail below the throat,
+   the three slices collapse back into one <img> with no clip. */
+.machine-front .guard-left{
+  clip-path:inset(0 calc(100% - var(--sheet-left) + var(--guard-inset)) calc(var(--throat-local) + var(--guard-inset)) 0);
+}
+.machine-front .guard-right{
+  clip-path:inset(0 0 calc(var(--throat-local) + var(--guard-inset)) calc(var(--sheet-right) + var(--guard-inset)));
+}
+.machine-front .guard-low{
+  clip-path:inset(calc(var(--throat-local) + var(--guard-inset)) 0 0 0);
+}
+html[data-ui-art="ready"] .machine-layer,
+html[data-ui-art="ready"] .machine-front{ display:block; }
 
 /* ------------------------------------------------------------------ paper colophon (1.1.1)
    "WORD KALLIOPE BY VIC" centred in the paper's bottom margin, at 80% of the document type
@@ -382,12 +355,12 @@ html,body{
    of the row the print line (r1 printLineY 956) sits in. It is a contract value: Gate 2 may move
    it together with FEED_ANCHOR_ROW, and the two must stay in step. */
 .paper-clip{
-  position:relative;
+  position:absolute;               /* inside .machine-frame, at the sheet's r1 x */
+  left:var(--paper-x);
   width:var(--sheet-w);
   height:var(--paper-throat, 960px);
   overflow:hidden;                 /* fallback */
   overflow:clip;                   /* not a scroll container (R4 §2.4) */
-  transform-origin:top left;
   flex:0 0 auto;
 }
 /* The sheet itself: translated up by app.js as the writing advances. Only a transform, never a
@@ -408,12 +381,11 @@ html,body{
    never reach an output path. */
 .machine-fixed{
   position:absolute;
-  left:0;
+  left:var(--paper-x);             /* the sheet's origin inside the machine frame */
   top:0;
   width:0;
   height:0;
-  transform-origin:top left;
-  z-index:3;
+  z-index:3;                       /* above .paper-clip (DOM order puts the front layer last) */
 }
 .print-head,
 .page-counter{

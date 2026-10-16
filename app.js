@@ -27,6 +27,11 @@
   var RECOVERY_MS = 3 * 60 * 1000;        /* §38 */
   var SHEET_PX = ROWS_PER_SHEET * ROW_PX; /* 864 */
   var PAPER_W = 8.5 * 96, PAPER_H = 11 * 96;
+  /* [1.1.6.1 UI integration] The machine frame the sheet lives in, from the r1 contract
+     (UI-Delivery-1.1.6-r1/coordinates.json). The frame is the scaled box and the thing fitZoom()
+     fits, so the whole machine stays on screen; the sheet sits at MACHINE_PAPER_X inside it. */
+  var MACHINE_W = 1230.2131979695432, MACHINE_H = 1092.0980420594634;
+  var MACHINE_PAPER_X = 207.10659898477158;
   var PAPER_COLORS = [
     /* §08, colours re-ruled by the product side on 2026-10-06 (Notes §13). This array is what
        paints the screen and the print sheets, so it must stay in step with --paper-white /
@@ -100,6 +105,7 @@
     el.stage = document.getElementById("stage");
     el.stageInner = document.getElementById("stage-inner");
     el.paperClip = document.getElementById("paper-clip");
+    el.machineFrame = document.getElementById("machine-frame");
     el.machineFixed = document.getElementById("machine-fixed");
     el.paper = document.getElementById("paper");
     el.window = document.getElementById("sheet-window");
@@ -1488,7 +1494,11 @@
     var vw = vv ? vv.width : document.documentElement.clientWidth;
     var vh = vv ? vv.height : document.documentElement.clientHeight;
     var chrome = (el.bar ? el.bar.offsetHeight : 0) + 36;
-    var z = Math.min((vw - 36) / PAPER_W, (vh - chrome) / PAPER_H);
+    /* [1.1.6.1 UI integration] The frame is what has to fit: it is 1230.21 x 1092.10 document px
+       around an 816 x 1056 sheet, so fitting only the sheet would push the machine's lower edge and
+       its 207.11px left overhang off screen (and the page must never scroll - R10). This is also
+       the delivery's own budget: (viewport height - 81) / 1092.098. */
+    var z = Math.min((vw - 36) / MACHINE_W, (vh - chrome) / MACHINE_H);
     if (!isFinite(z) || z <= 0) z = 1;
     return Math.max(0.25, Math.min(2, z));
   }
@@ -1502,15 +1512,14 @@
      transform only, it never reaches the print DOM. */
   function applyZoom() {
     var z = currentZoom();
-    /* [1.1.6.1] The zoom moved one level up, from .paper to the machine's throat. The sheet now
-       carries the feed translate, so scaling it directly would fight that transform; scaling the
-       throat keeps machine and paper on one scale (R4 §6.2) and leaves the paper's transform
-       free. .machine-fixed takes the same scale, so a machine part stays put on the machine
-       while the paper moves under it. */
-    if (el.paperClip) el.paperClip.style.transform = "scale(" + z + ")";
-    if (el.machineFixed) el.machineFixed.style.transform = "scale(" + z + ")";
-    el.stageInner.style.width = (PAPER_W * z) + "px";
-    el.stageInner.style.height = (PAPER_H * z) + "px";
+    /* [1.1.6.1 UI integration] The zoom moved one more level up: it is now a transform on the
+       machine FRAME, the single box that holds the rear layer, the sheet (whose .paper keeps its
+       own feed translate, so nothing fights it), the throat, the print head, the front layer and
+       the page counter. Machine, sheet and chrome therefore share one scale (R4 §6.2), and the
+       stage-inner reserves exactly the frame's footprint at that scale. */
+    if (el.machineFrame) el.machineFrame.style.transform = "scale(" + z + ")";
+    el.stageInner.style.width = (MACHINE_W * z) + "px";
+    el.stageInner.style.height = (MACHINE_H * z) + "px";
     el.btnZoom.textContent = "ZOOM " + ZOOM_STEPS[state.zoomIndex].label;
     /* 1.1.1: the rail marks keep their 4x8px size but must follow the paper's new scale */
     if (!helpHidesRails) {

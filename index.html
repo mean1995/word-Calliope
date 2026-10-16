@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-ui-art="ready">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -36,61 +36,58 @@
 <!-- §07 one sheet at a time; §12/§13 the sheet is a window over one continuous text -->
 <div class="stage" id="stage">
   <div class="stage-inner" id="stage-inner">
-    <!-- 1.1.1 machine stage: the machine-body badge (application chrome, decorative,
-         non-interactive) and the two rail marks that flank the visual line the caret is on.
-         All of it stays out of the paper DOM, the TXT, Recovery, Print and PDF (print hides
-         .stage). The rail marks are positioned by read-only caret geometry in app.js and are
-         hidden whenever that visual line holds no character. -->
-    <div class="machine-slot" aria-hidden="true">
-      <img class="machine-logo" src="logo.svg" alt="">
-    </div>
-    <!-- 1.1.6.1 feed (VIC ruling): THE PAPER MOVES, THE MACHINE DOES NOT (P04). The sheet is
-         translated up as the writing advances and .paper-clip is the machine's throat: it
-         shows only the part of the sheet that has come out, exactly like paper leaving a
-         typewriter. The clip is the scaled frame, so a document ZOOM still scales machine and
-         paper together. Whatever is below the throat belongs to the machine body (a later
-         build) and is simply not drawn here. -->
-    <div class="paper-clip" id="paper-clip">
-      <div class="paper" id="paper">
-        <div class="sheet-window" id="sheet-window"><!-- editor built by app.js --></div>
-        <!-- Colophon centred in the paper's bottom margin. Its place is ON THE SHEET, so it now
-             lives inside .paper: it travels with the paper and the throat cuts it off like
-             everything else below the print line. That is also why it is no longer multiplied by
-             the zoom - the scaled throat does that once. Romanised on purpose: the CJK slot's
-             Greek capitals are drawn ~16% shorter than its Latin capitals and float above the
-             baseline (measured 2026-10-06), which read as an uneven line; the CJK slot is kept
-             for its dot-matrix character. P05 (keep or cancel the paper colophon) is still open,
-             and at the r1 throat this mark spends the whole run inside the machine. -->
-        <div class="paper-mark" id="paper-mark" aria-hidden="true">WORD KALLIOPE BY VIC</div>
+    <!-- ======================================================== 1.1.6.1 UI integration
+         THE MACHINE FRAME (1.1.6.1, UI-Delivery-1.1.6-r1). The delivered machine art and the
+         sheet now live inside ONE scaled box: the machine frame is 1230.2131979695432 x
+         1092.0980420594634 document px, the sheet sits in it at x = 207.10659898477158, and the
+         document ZOOM is a transform on this frame (moved up from the throat, R4 §6.2), so the
+         machine, the sheet and the chrome share one scale. It is also what fitZoom() fits, so the
+         whole machine stays inside the viewport - the delivery's own device budget assumes exactly
+         that (FIT = (viewport height - 81) / 1092.098).
+         Stacking, back to front, is the delivery's order: rear layer -> live sheet -> print head
+         -> front layer (nameplate and page-number base baked in) -> page-counter text.
+         Both machine layers are decorative application chrome: pointer-events:none so paper clicks
+         and drag-selection are untouched (§2.4), aria-hidden, and @media print hides the whole
+         .stage - none of it can reach TXT, SAVE, Recovery, Print or PDF. -->
+    <div class="machine-frame" id="machine-frame">
+
+      <!-- rear layer: the roller behind the sheet, visible only through the slot below the throat -->
+      <div class="machine-layer machine-back" aria-hidden="true">
+        <img class="machine-art" src="assets/machine/machine-rear.png" alt="">
       </div>
+
+      <!-- the sheet: .paper-clip is the machine's throat. It carries no transform any more (the
+           frame has it) and still cuts the sheet off at 1in + 54 rows = 960 document px, so only
+           the part of the sheet that has come OUT of the machine is drawn. -->
+      <div class="paper-clip" id="paper-clip">
+        <div class="paper" id="paper">
+          <div class="sheet-window" id="sheet-window"><!-- editor built by app.js --></div>
+          <!-- Colophon centred in the paper's bottom margin. Its place is ON THE SHEET, so it
+               lives inside .paper: it travels with the paper and the throat cuts it off like
+               everything else below the print line. Romanised on purpose: the CJK slot's Greek
+               capitals are drawn ~16% shorter than its Latin capitals. P05 (keep or cancel the
+               paper colophon) is still open, and at this throat the mark spends the whole run
+               inside the machine. -->
+          <div class="paper-mark" id="paper-mark" aria-hidden="true">WORD KALLIOPE BY VIC</div>
+        </div>
+      </div>
+
+      <!-- machine parts that never move relative to the machine: the print head (its own artwork,
+           independent of the body - §4.1 LOCKED), the front layer and the page-counter text. -->
+      <div class="machine-fixed" id="machine-fixed" aria-hidden="true">
+        <div class="print-head" id="print-head"><img class="head-art" src="assets/machine/printhead.png" alt=""></div>
+        <!-- Front layer in three clipped slices (see .guard-* in style.css): slices 1+2 keep only
+             what is OUTSIDE the sheet above the throat, slice 3 keeps everything below the throat,
+             so the delivered bail crossbar and the tower edges cannot cover the sheet. -->
+        <div class="machine-front" aria-hidden="true">
+          <img class="machine-art guard-left" src="assets/machine/machine-front.png" alt="">
+          <img class="machine-art guard-right" src="assets/machine/machine-front.png" alt="">
+          <img class="machine-art guard-low" src="assets/machine/machine-front.png" alt="">
+        </div>
+        <div class="page-counter" id="page-counter">01/01</div>
+      </div>
+
     </div>
-    <!-- 1.1.6.1 hooks: the print head and the page counter are MACHINE parts, so they do not
-         move with the paper. They are positioned by contract variables
-         (UI-Delivery-1.1.6-r1/coordinates.json, r1 candidate values) and carry live state as
-         attributes and text, but they are NOT PAINTED until the UI-integration build sets
-         data-ui-art="ready" on <html>. No artwork, no glyphs, no interaction: pointer-events
-         none, aria-hidden, and hidden by @media print with the rest of .stage. They sit in
-         .stage but outside the editing window, so they are never document content: TXT, SAVE,
-         Recovery, Print and PDF cannot see them. -->
-    <div class="machine-fixed" id="machine-fixed" aria-hidden="true">
-      <div class="print-head" id="print-head"></div>
-      <div class="page-counter" id="page-counter">01/01</div>
-    </div>
-    <div class="rail-mark rail-mark-left" id="rail-left" aria-hidden="true"></div>
-    <div class="rail-mark rail-mark-right" id="rail-right" aria-hidden="true"></div>
-    <!-- typewriter rail (2026-10-06): the carriage line under the caret's row and the line two
-         rows above it, as one integrated unit - left and right segments on both rows, with the
-         two graduations only on the caret's own row. The upper row may fall inside the paper's
-         top margin; that is intended. Driven read-only by app.js updateTypeLine(). -->
-    <div class="type-line" id="type-line" aria-hidden="true">
-      <i class="type-tick type-tick-long" id="type-tick-long"></i>
-      <i class="type-tick type-tick-short" id="type-tick-short"></i>
-    </div>
-    <div class="type-line" id="type-line-up2" aria-hidden="true"></div>
-    <div class="type-line type-line-right" id="type-line-right" aria-hidden="true"></div>
-    <div class="type-line type-line-right" id="type-line-right-up2" aria-hidden="true"></div>
-    <!-- hides the native blinking caret: paper-coloured, above the paper but below the rail -->
-    <div class="caret-mask" id="caret-mask" aria-hidden="true"></div>
   </div>
 </div>
 
