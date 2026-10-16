@@ -103,7 +103,26 @@ function checkTrue(name, cond, detail) {
       helpOpen: !!document.querySelector(".help-sheet.is-open")
     };
   });
-  check("R3 the help sheet is open and the editor is closed", helpState, { editorDisabled: true, helpOpen: true });
+  check("R3 the help sheet is open and the editor is closed", helpState,
+        { editorDisabled: true, helpOpen: true });
+  /* [2026-10-16 bug fix] The help sheet must be readable IN FULL: it is 865.39 document px of
+     static copy pinned to the top of the editing window, and the feed model keeps a fresh sheet
+     down at the print line, so before the fix only the first line was inside the throat and
+     849px were cut off. Guard: the sheet's box sits inside the throat. */
+  var helpBox = await page.evaluate(function () {
+    var s = document.querySelector(".help-sheet").getBoundingClientRect();
+    var c = document.getElementById("paper-clip").getBoundingClientRect();
+    var z = c.width / 816;
+    return { sheet: [Math.round(s.top), Math.round(s.bottom)],
+             clip: [Math.round(c.top), Math.round(c.bottom)],
+             docTop: Math.round((s.top - c.top) / z), docBottom: Math.round((s.bottom - c.top) / z),
+             docHeight: Math.round((s.bottom - s.top) / z),
+             docThroat: Math.round((c.bottom - c.top) / z) };
+  });
+  checkTrue("R3 the whole HELP sheet fits inside the throat (no line is cut off)",
+            helpBox.docTop >= -1 && helpBox.docBottom <= helpBox.docThroat + 2 &&
+            helpBox.docHeight > 800,
+            JSON.stringify(helpBox));
   await page.keyboard.press("Escape");
   await page.waitForTimeout(120);
   var afterHelp = await page.evaluate(function () {

@@ -490,6 +490,9 @@
       el.btnHelp.textContent = "HELP";
       /* [1.1.6.1 R4 §5.4] the document's own page numbers come back with the document */
       state.helpCounter = null;
+      /* [2026-10-16] the sheet came out at offset 0 while HELP was up; put the editing position
+         (the flow's page offset and the paper's feed) back exactly as it was */
+      positionEditor();
       try { el.editor.focus({ preventScroll: true }); } catch (e) { el.editor.focus(); }
       scheduleRecoveryCheck();
     }
@@ -929,7 +932,15 @@
 
   function applyPaperFeed(extraRows) {
     if (!el.paper) return;
-    el.paper.style.transform = "translateY(" + paperFeedPx(extraRows) + "px)";
+    /* [2026-10-16 bug fix] While the HELP sheet is up the paper carries no feed offset at all.
+       The help sheet is pinned to the TOP of the editing window (it is 865.39 document px of
+       static copy: 96px margin + 48 rows) and must be readable in full, while the feed model
+       deliberately holds a fresh sheet down at the print line - at the first row only the top
+       margin and one line are inside the throat. Left alone, HELP therefore showed exactly one
+       line and hid the other 849px. With the offset at 0 the whole help sheet (96..961.39) sits
+       inside the 960px throat, so every line is visible. The editing position is restored by
+       positionEditor() when the sheet closes. */
+    el.paper.style.transform = "translateY(" + (state.help ? 0 : paperFeedPx(extraRows)) + "px)";
   }
 
   function syncSheet(force) {
