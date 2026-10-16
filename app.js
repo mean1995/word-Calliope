@@ -593,7 +593,9 @@
 
   function setRailsHidden(hidden) {
     helpHidesRails = hidden;
-    if (!hidden) { updateRailMarks(); return; }
+    /* [2026-10-16] both halves of the WPS chrome are restored here: updateRailMarks() alone left
+       the carriage rail and the caret mask out until the next keystroke */
+    if (!hidden) { updateRailMarks(); updateTypeLine(); return; }
     if (el.railLeft) el.railLeft.style.display = "none";
     if (el.railRight) el.railRight.style.display = "none";
     if (el.typeLine) el.typeLine.style.display = "none";
@@ -1021,8 +1023,14 @@
   function inputMoment() {
     if (state.pageView) exitPageView();          /* any input returns to the editing position */
     browseClear();
-    /* the same rule viewToCaret() uses: the caret's row goes back to the print line */
-    var base = caretInfo().row;
+    /* The same rule viewToCaret() uses: the caret's row goes back to the print line. In WPS mode
+       that rule is PAGE-ALIGNED instead (the sheet is whole and never feeds), so the view only has
+       to follow when the caret crosses into another page. Without this branch every single
+       keystroke re-set the view to the caret's row - a no-op for the paper (the feed is pinned at
+       0) but a full positionEditor() + refreshViewportChrome() every time: measured 2026-10-16,
+       40 style writes per 10 keys in WPS against 25 in the skeuomorphic view. */
+    var info = caretInfo();
+    var base = state.wps ? (info.sheet < 0 ? 0 : info.sheet) * ROWS_PER_SHEET : info.row;
     if (viewRow() !== base) setViewRow(base);
     /* the browse session ends here even when the clamp means the view cannot move: from this
        keystroke on, AA is the page being written on again (R4 §5.3) */
@@ -1425,6 +1433,10 @@
   function updateRailMarks() {
     var left = el.railLeft, right = el.railRight;
     if (!left || !right) return;
+    /* [2026-10-16] These marks belong to the WPS (1.1.5.2) view; the skeuomorphic view has the
+       delivered machine instead and hides them in CSS. Bail out BEFORE writing geometry: measured
+       2026-10-16, the chrome that was not on screen still cost ~25 style writes per 10 keystrokes. */
+    if (!state.wps) return;
     if (!el.editor || !state.layout) { left.style.display = right.style.display = "none"; return; }
     var info = locate(state.layout, el.editor.selectionStart || 0);
     var pick = railRow(info);
@@ -1478,6 +1490,8 @@
 
   function updateTypeLine() {
     var g = el.typeLine, gr = el.typeLineRight, mask = el.caretMask;
+    /* same rule as updateRailMarks(): WPS-only chrome, no writes while it is out of the way */
+    if (!state.wps) return;
     /* the rail is two rows only: the caret's own row and the row two rows above it, so one
        empty row separates them (PM 2026-10-06: the middle row was removed) */
     var leftBars = [[el.typeLine, 0], [el.typeLineUp2, 2]];
