@@ -112,6 +112,13 @@
      decision; position / material / colour / size of the window stay UI's (§5.7). */
   --counter-font:"KalliopeCounter", "KalliopeLatin", ui-monospace, monospace;
   --counter-font-size:25px;
+  /* The digits' ink. The delivered front layer bakes the page window as DARK GLASS (measured
+     2026-10-16 on the window's inner area: RGB 35.6,35.8,35.6, i.e. ~#242424), so the inherited
+     ribbon ink #262522 gave a contrast of 1.02:1 and the counter was INVISIBLE. This is the paper
+     cream, 13.77:1 on that base, and reads like a mechanical white-on-black counter. It is a dev
+     fallback: the window's 颜色 is UI's call (§5.7), so the value lives here as one variable.
+     #FFB000 amber would also work (8.50:1) if UI prefers an LED look. */
+  --counter-ink:#F4F1E6;
 
   /* ------------------------------------------------------------ 1.1.6.1 UI integration
      The machine frame (UI-Delivery-1.1.6-r1/coordinates.json, r1 CANDIDATE). Everything below
@@ -314,6 +321,14 @@ html,body{
 .machine-front .guard-low{
   clip-path:inset(calc(var(--throat-local) + var(--guard-inset)) 0 0 0);
 }
+/* The whole-image mode: set data-machine-front="whole" on <html> when the front layer is
+   re-exported with the bail out of the text range, and the three guard slices below collapse
+   back into one unclipped <img> (see .guard-whole). Nothing else changes. */
+.machine-front .guard-whole{ display:none; }
+html[data-machine-front="whole"] .machine-front .guard-left,
+html[data-machine-front="whole"] .machine-front .guard-right,
+html[data-machine-front="whole"] .machine-front .guard-low{ display:none; }
+html[data-machine-front="whole"] .machine-front .guard-whole{ display:block; }
 html[data-ui-art="ready"] .machine-layer,
 html[data-ui-art="ready"] .machine-front{ display:block; }
 
@@ -412,6 +427,7 @@ html[data-ui-art="ready"] .machine-front{ display:block; }
      print, never as the normal source of a glyph. */
   font-family:var(--counter-font);
   font-size:var(--counter-font-size);
+  color:var(--counter-ink);
   line-height:var(--counter-h);
   text-align:center;
   letter-spacing:0;
