@@ -15,11 +15,10 @@
   src:url("assets/fonts/font-cjk.woff2") format("woff2");
   font-weight:400; font-style:normal; font-display:swap;
 }
-/* Primary-Control face (1.1.1, subset widened 2026-10-16): Doto instantiated at ROND 100 /
-   wght 400, renamed KalliopeButton (SIL OFL 1.1 - the full notice ships as
-   assets/fonts/LICENSE-DOTO.txt). It carries 65 code points now: A-Z, a-z, 0-9, space, "-", "%" -
-   the two new Primary Controls are labelled PgUp / PgDn and need the lowercase, which the Doto
-   face must draw itself rather than falling back to a system monospace mid-word. It is deliberately NOT part of --font-stack: the
+/* Primary-Control face (1.1.1): Doto instantiated at ROND 100 / wght 400, subset to the 39 code
+   points the controls can display, renamed KalliopeButton (SIL OFL 1.1 - the full notice ships
+   as assets/fonts/LICENSE-DOTO.txt). It stayed at 39 code points: the two new Primary Controls
+   are labelled PGUP / PGDN in capitals, like every other control. It is deliberately NOT part of --font-stack: the
    document slots, the paper and the print sheets keep KalliopeLatin / KalliopeCJK, and a
    failure to load this decorative face must never reach the data-grid capability guard.
    font-display:block avoids a label-width jump; the local file resolves immediately. */
@@ -242,6 +241,12 @@ html,body{
   background-image:linear-gradient(90deg,#7d7869 0 6px,transparent 6px);
 }
 #btn-paper{box-shadow:inset 4px 0 0 0 var(--paper-color)}
+/* WPS is a state switch too, so it carries a stripe: dim while the skeuomorphic interaction is
+   on (the default), amber while the 1.1.5.2 page view owns the screen. The colour is the
+   developer's choice (VIC 2026-10-16); #C8A200 reads as "old switch thrown" against both the
+   dark bar and the PAPER / RIBBON stripes. */
+#btn-wps{box-shadow:inset 4px 0 0 0 #6b675d}
+html[data-wps="on"] #btn-wps{box-shadow:inset 4px 0 0 0 #C8A200}
 
 /* ------------------------------------------------------------------ stage / zoom
    §34 Zoom changes screen rendering only · §35 print CSS is independent of it     */
@@ -353,6 +358,146 @@ html[data-machine-front="whole"] .machine-front .guard-low{ display:none; }
 html[data-machine-front="whole"] .machine-front .guard-whole{ display:block; }
 html[data-ui-art="ready"] .machine-layer,
 html[data-ui-art="ready"] .machine-front{ display:block; }
+
+/* ------------------------------------- 1.1.5.2 chrome, restored for WPS mode (2026-10-16)
+   VIC's WPS switch puts the app back into the 1.1.5.2 page-editing view, which had this chrome
+   instead of the delivered machine: the machine-body badge, the two rail marks, the four
+   carriage rails and the paper-coloured caret mask. The block below is the 1.1.5.2 stylesheet
+   verbatim (it was retired in V27); the rule right after it keeps all of it out of the way while
+   WPS is off, because in the skeuomorphic mode the machine art IS the chrome. */
+/* ------------------------------------------------------------------ machine stage (1.1.1)
+   Application chrome around the paper: the machine-body badge and the two rail marks that
+   flank the visual line the caret is on. All of it stays out of the paper DOM, the TXT,
+   Recovery, Print and PDF - @media print hides the whole .stage. Decorative only: no state,
+   no input handling, no animation.
+   Badge geometry (1.1.3, superseding the 1.1.1 geometry of PM ruling §4): 49px high, i.e.
+   1.75x the 1.1.1 value of 28px; right edge still 80px left of the paper's left edge, and a
+   fixed screen position vertically: badge centre = paper visual top + 409.5px.
+   409.5px is half of the paper's visual height at 1440 x 900 / ZOOM FIT (819px), i.e. the
+   place the badge occupies on first opening. It is deliberately a frozen number, not a
+   percentage: nothing moves the badge afterwards - not Document ZOOM (the paper grows, the
+   badge stays), not page turning, not the text. Recorded 2026-10-07. */
+.paper{z-index:1}
+
+/* The badge has exactly two states: visible at its intended size, or hidden (PM ruling §4).
+   Visible only while the paper's left-side slot can hold
+     rendered logo width 149.3241px + 80px paper clearance + 24px outer breathing room = 253.32px
+   measured from the viewport's left edge to the paper's visual left edge.
+   (1.1.3: 149.3241 = 85.3281 x 49/28. The larger threshold costs the 125% step on a 1440px
+   viewport, which 28px still held - accepted as the price of the larger badge.)
+   .machine-slot expresses that slot as a container so the condition follows the real layout:
+   it spans viewport-left-edge -> paper-left-edge and is 0px tall, so it cannot affect layout
+   (50cqw = half of .stage's content box, 50% = half of the paper's visual width, +18px is the
+   stage's own left padding). Progressive enhancement, as ruled: without container query support
+   the rule below never applies and the badge simply stays hidden. */
+.machine-slot{
+  position:absolute;
+  right:100%;
+  top:0;
+  height:0;
+  width:calc(50cqw - 50% + 18px);
+  container-type:inline-size;
+}
+.machine-logo{
+  position:absolute;
+  right:80px;                     /* logo right edge 80px left of the paper's left edge */
+  top:385px;                      /* 1.1.3 frozen: 409.5px badge centre - 49/2; see the note above */
+  height:49px;                    /* 1.1.3: 1.75x the 1.1.1 28px; width:auto keeps the ratio */
+  width:auto;
+  display:none;                   /* the approved default state: hidden */
+  pointer-events:none;
+}
+@container (min-width:253.32px){
+  .machine-logo{display:block}
+}
+
+/* ------------------------------------------------------------------ rail marks (1.1.1)
+   Two black triangles marking the visual line the caret is on:
+     left  triangle: points right, its right tip 8 character cells left of the first cell
+     right triangle: points left,  its left tip 6 character cells right of the last cell
+   Both are 4x8 CSS px - half of the 8x16px Latin document cell - and are vertically centred
+   on that line. Both gaps are document measurements (left 8 x 8px, right 6 x 8px), so they
+   scale with the text and always read as that many characters; only the 4x8px mark size is a
+   screen-space measurement that never scales with document ZOOM. Only the positions follow the
+   paper (app.js updateRailMarks()).
+   Pure #000000, flat, no line, no plate, no shadow, no gradient, no border, no animation,
+   and deliberately independent of PAPER / RIBBON. On an empty visual line only the leading
+   mark is shown (the caret is still on that line, but there is no last character cell for a
+   trailing mark); both marks are hidden only when there is no line to mark at all. */
+.rail-mark{
+  position:absolute;
+  width:4px;
+  height:8px;
+  background:#000000;
+  z-index:2;                      /* above the paper: the marks sit in its margins */
+  display:none;
+  pointer-events:none;
+}
+.rail-mark-left{clip-path:polygon(0 0, 100% 50%, 0 100%)}
+.rail-mark-right{clip-path:polygon(100% 0, 0 50%, 100% 100%)}
+
+/* ------------------------------------------------------------------ typewriter position line (1.1.1)
+   The typewriter's carriage rail: a red underline ending at the caret, always six character
+   cells long, plus a second segment starting 1 cell to the right of the caret and 3 cells
+   long. Both lengths are fixed, so near the start of a row the left part runs on into the
+   paper's left margin and near the end of a row the right part runs on into the right margin
+   instead of shortening. Both track the caret on every edit, caret move, sheet change and
+   document ZOOM, and both are hidden only while there is no insertion point. Width, height and position are document measurements (they scale with the
+   paper like the text); the colour is fixed red and deliberately does not follow RIBBON or
+   PAPER. Presentation only: chrome outside the paper DOM, no state, nothing written back,
+   and it is excluded from TXT, Recovery, SAVE, Print and PDF with the rest of the stage. */
+.type-line{
+  position:absolute;
+  height:2px;
+  background:#cc0000;
+  z-index:2;
+  display:none;
+  pointer-events:none;
+}
+/* the two graduations stand on the rail and rise into the character cell: one full character
+   height at two character widths left of the caret, one half height at four widths left.
+   Their stroke width, heights and offsets are document measurements, so they scale with the
+   paper like the rail itself (app.js updateTypeLine()). */
+.type-tick{
+  position:absolute;
+  bottom:100%;              /* bottom edge on the rail's top edge */
+  width:2px;
+  background:#cc0000;
+}
+.type-tick-long{height:16px}
+.type-tick-short{height:8px}
+
+
+/* The rail is the caret's row plus the two rows above it, drawn as one unit. */
+.caret-mask{
+  position:absolute;
+  width:2px;
+  height:16px;
+  background:var(--paper-color);   /* paper-coloured, so it is invisible on the sheet */
+  z-index:1;                       /* above .paper (same z-index, later in DOM), below the rail */
+  display:none;
+  pointer-events:none;
+}
+
+html:not([data-wps="on"]) .machine-slot,
+html:not([data-wps="on"]) .rail-mark,
+html:not([data-wps="on"]) .type-line,
+html:not([data-wps="on"]) .caret-mask{ display:none !important; }
+
+/* ---- WPS mode: the 1.1.5.2 page ------------------------------------------------
+   No skeuomorphic machine at all, the sheet is whole (no throat cutting it at 960) and it sits at
+   the frame's origin; the caret mask hides the native caret again, exactly as 1.1.5.2 did. */
+html[data-wps="on"]{
+  --paper-x:0px;
+  --machine-origin-x:0px;
+  --paper-throat:var(--sheet-h);
+}
+html[data-wps="on"] .machine-frame{ width:var(--sheet-w); height:var(--sheet-h); }
+html[data-wps="on"] .machine-layer,
+html[data-wps="on"] .machine-front,
+html[data-wps="on"] .print-head,
+html[data-wps="on"] .page-counter{ display:none !important; }
+html[data-wps="on"] #editor{ caret-color:transparent; }
 
 /* ------------------------------------------------------------------ paper colophon (1.1.1)
    "WORD KALLIOPE BY VIC" centred in the paper's bottom margin, at 80% of the document type

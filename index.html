@@ -23,7 +23,7 @@
   <button type="button" id="btn-new">NEW</button>
   <button type="button" id="btn-open">OPEN</button>
   <button type="button" id="btn-save">SAVE</button>
-  <button type="button" id="btn-pdf">EXPORT PDF</button>
+  <button type="button" id="btn-pdf">EXPORT</button>
   <button type="button" id="btn-zoom">ZOOM FIT</button>
   <button type="button" id="btn-return">AUTO RETURN ON</button>
   <button type="button" id="btn-sound">SOUND ON</button>
@@ -32,8 +32,12 @@
   <!-- 2026-10-16 (VIC): the full-page browse pair, between RIBBON and HELP. Two flat controls, not
        a dropdown (Dev-Memo-0.1.2: no new secondary menus). Labels are VIC's key names
        PgUp / PgDn; the KalliopeButton subset was widened to a-z for them (LICENSE-DOTO.txt). -->
-  <button type="button" id="btn-pageup">PgUp</button>
-  <button type="button" id="btn-pagedown">PgDn</button>
+  <button type="button" id="btn-pageup">PGUP</button>
+  <button type="button" id="btn-pagedown">PGDN</button>
+  <!-- 2026-10-16 (VIC): WPS = Word Processing System. A state switch like PAPER / RIBBON with its
+       own colour stripe: it puts the app back into the 1.1.5.2 page-editing view (page-aligned
+       sheet, no skeuomorphic machine) and back again. Default is the skeuomorphic interaction. -->
+  <button type="button" id="btn-wps">WPS</button>
   <button type="button" id="btn-help">HELP</button>
   </div>
 </nav>
@@ -54,6 +58,12 @@
          Both machine layers are decorative application chrome: pointer-events:none so paper clicks
          and drag-selection are untouched (§2.4), aria-hidden, and @media print hides the whole
          .stage - none of it can reach TXT, SAVE, Recovery, Print or PDF. -->
+    <!-- 1.1.5.2 chrome, restored 2026-10-16 for WPS mode only (hidden while data-wps is absent):
+         the machine-body badge that used to sit left of the sheet. -->
+    <div class="machine-slot" aria-hidden="true">
+      <img class="machine-logo" src="logo.svg" alt="">
+    </div>
+
     <div class="machine-frame" id="machine-frame">
 
       <!-- rear layer: the roller behind the sheet, visible only through the slot below the throat -->
@@ -96,6 +106,19 @@
       </div>
 
     </div>
+    <!-- 1.1.5.2 rail marks, carriage rail and caret mask: WPS mode only (see style.css). The
+         caret mask is what hid the native caret in 1.1.5.2; V24 replaced it with the native
+         blinking caret in the skeuomorphic mode, so it is shown only while WPS is on. -->
+    <div class="rail-mark rail-mark-left" id="rail-left" aria-hidden="true"></div>
+    <div class="rail-mark rail-mark-right" id="rail-right" aria-hidden="true"></div>
+    <div class="type-line" id="type-line" aria-hidden="true">
+      <i class="type-tick type-tick-long" id="type-tick-long"></i>
+      <i class="type-tick type-tick-short" id="type-tick-short"></i>
+    </div>
+    <div class="type-line" id="type-line-up2" aria-hidden="true"></div>
+    <div class="type-line type-line-right" id="type-line-right" aria-hidden="true"></div>
+    <div class="type-line type-line-right" id="type-line-right-up2" aria-hidden="true"></div>
+    <div class="caret-mask" id="caret-mask" aria-hidden="true"></div>
   </div>
 </div>
 

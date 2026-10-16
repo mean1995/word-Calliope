@@ -10,10 +10,8 @@ This file is a MODIFIED VERSION of Doto Regular.
                  (https://github.com/oliverlalan/Doto)
   License      : SIL Open Font License, Version 1.1
   Modification : - instantiated at ROND = 100, wght = 400
-                 - subset to U+0020, U+0025, U+002D, U+0030-0039, U+0041-005A, U+0061-007A
-                   (65 code points: widened from the original 39 on 2026-10-16 so that the two new
-                   Primary Controls can be labelled PgUp / PgDn in the button face instead of
-                   dropping their lowercase letters to a system monospace mid-word)
+                 - subset to U+0020, U+0025, U+002D, U+0030-0039, U+0041-005A
+                   (the 39 code points the nine Primary Controls can display)
                  - STAT, DSIG and meta tables removed
                  - converted to WOFF2
                  - renamed to "KalliopeButton" / "KalliopeButton-Regular"
@@ -21,9 +19,8 @@ This file is a MODIFIED VERSION of Doto Regular.
   Not endorsed : This modified version is not endorsed by the Doto Project Authors.
 
   The copyright notice (name table, nameID 0) is retained unchanged.
-  The source variable font (Doto[ROND,wght].ttf, SIL OFL 1.1) is NOT distributed with the
-  product; the dev-only build script is Dev-Memo-1.1.1/_dev-fonts/_build-button-font.py and can
-  rebuild this exact file from it.
+  The original, unmodified variable font is kept in the development memo repository
+  (Dev-Memo-1.1.1/_dev-fonts/) and is not distributed with the product.
 
   Full licence text follows.
 ================================================================

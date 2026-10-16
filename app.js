@@ -145,6 +145,7 @@
     el.btnRibbon = document.getElementById("btn-ribbon");
     el.btnPageUp = document.getElementById("btn-pageup");
     el.btnPageDown = document.getElementById("btn-pagedown");
+    el.btnWps = document.getElementById("btn-wps");
     el.btnHelp = document.getElementById("btn-help");
   }
 
@@ -171,6 +172,7 @@
     helpZoomIndex: null,        /* the reader's zoom, parked while HELP is locked to FIT */
     pageView: false,            /* the full-page browse view owns the viewport (2026-10-16) */
     pageViewZoomIndex: null,    /* the reader's zoom, parked while it is locked to FIT */
+    wps: false,                 /* WPS = the 1.1.5.2 page view; DEFAULT OFF (VIC 2026-10-16) */
     layout: null,
     autoReturn: true,      /* §16 */
     zoomIndex: 0,
@@ -550,7 +552,7 @@
     if (!yes) returnDisabledByDesign = el.btnReturn ? el.btnReturn.disabled === true : false;
     [el.btnNew, el.btnOpen, el.btnSave, el.btnPdf,
      el.btnReturn, el.btnSound, el.btnPaper, el.btnRibbon,
-     el.btnPageUp, el.btnPageDown].forEach(function (b) {
+     el.btnPageUp, el.btnPageDown, el.btnWps].forEach(function (b) {
       if (!b) return;
       if (yes) b.disabled = (b === el.btnReturn) ? returnDisabledByDesign : false;
       else b.disabled = true;
@@ -559,6 +561,29 @@
        FIT, so its control is disabled with the rest and comes back enabled with them. It is NOT
        in the list above, so it is set from the same flag here - both directions. */
     if (el.btnZoom) el.btnZoom.disabled = !yes;
+  }
+
+  /* ---- 2026-10-16 (VIC): WPS = Word Processing System ---------------------------------------
+     A state switch (like PAPER / RIBBON, with its own stripe) between the 1.1.5.2 page-editing
+     view and the current skeuomorphic interaction. DEFAULT IS THE SKEUOMORPHIC ONE: nothing turns
+     WPS on by itself, it is not persisted, and a reload starts skeuomorphic again.
+       ON  -> no machine art, no print head, no page counter; the sheet is whole and page-aligned
+              (one page at a time, the way 1.1.5.2 showed it); the 1.1.5.2 chrome (badge, rail
+              marks, carriage rails, caret mask) is shown; FIT fits the PAPER again.
+       OFF -> exactly the interaction this build had.
+     The document engine is untouched either way: pagination, caret, IME, AUTO RETURN, PAPER /
+     RIBBON, sound, HELP, the full-page pair and every output path behave identically.
+     "Word Processing System" is documented here and in the memo only - not on the control, and
+     not as a tooltip (VIC 2026-10-16). */
+  function applyWps(on) {
+    state.wps = on === true;
+    if (state.wps && state.pageView) exitPageView();   /* the two whole-page ideas do not stack */
+    document.documentElement.setAttribute("data-wps", state.wps ? "on" : "off");
+    applyColors();                                      /* the caret colour is mode-specific */
+    applyZoom();                                        /* FIT follows the mode */
+    positionEditor();
+    viewToCaret();
+    refreshViewportChrome();
   }
 
   /* §H the two rail triangles belong to the editing position; while the HELP sheet is up there
@@ -793,6 +818,24 @@
 
   function viewRow() { return state.viewSheet * ROWS_PER_SHEET + state.viewIntraRows; }
 
+  /* [2026-10-16] Where a document row sits in the stage's document coordinates. The skeuomorphic
+     view pins the row standing at the print line (the sheet has fed out that far); the WPS view
+     shows a whole page-aligned sheet, so a row sits at the top margin plus its distance from the
+     page's first row. */
+  function rowTopPx(row) {
+    if (state.wps) return RAIL_MARGIN_PX + (row - state.viewSheet * ROWS_PER_SHEET) * ROW_PX;
+    return PRINT_LINE_TOP_PX + (row - viewRow()) * ROW_PX;
+  }
+
+  /* Which rows the chrome may draw on. Skeuomorphic: the sheet the throat shows, up to the row
+     standing at the print line (nothing below it has come out of the machine yet). WPS: the whole
+     page, because the whole page is what is on screen. */
+  function rowVisibleOnSheet(row) {
+    var pageStart = state.viewSheet * ROWS_PER_SHEET;
+    return state.wps ? (row >= pageStart && row < pageStart + ROWS_PER_SHEET)
+                     : (row >= pageStart && row <= viewRow());
+  }
+
   function setViewRow(row, wholeSheet) {
     if (!isFinite(row)) return false;
     row = Math.floor(row);
@@ -835,7 +878,8 @@
      行距" looks like when the paper is a sheet coming out of a machine. */
   function viewToCaret() {
     var info = caretInfo();
-    var moved = setViewRow(info.row);
+    /* [2026-10-16] WPS shows a page-aligned sheet: the view is the caret's PAGE, not its row. */
+    var moved = setViewRow(state.wps ? (info.sheet < 0 ? 0 : info.sheet) * ROWS_PER_SHEET : info.row);
     state.viewBrowsing = false;
     return moved;
   }
@@ -906,6 +950,20 @@
   function pageFlip(direction) {
     if (state.help) return false;
     var pages = pageCount();
+    /* [2026-10-16] In WPS mode the sheet is already whole and page-aligned, so the pair simply
+       turns the page: no feed to press out, no FIT lock, and no "return to the edited page" rule
+       (that rule belongs to the skeuomorphic page view, which has a separate editing position). */
+    if (state.wps) {
+      var targetPage = state.viewSheet + direction;
+      if (targetPage < 0 || targetPage > pages - 1) return false;
+      setViewRow(targetPage * ROWS_PER_SHEET);
+      /* browsing, not editing: AA must name the page ON SCREEN (the WPS page counter is hidden,
+         but the state has to stay consistent), and the first keystroke brings the caret's own
+         page back through the ordinary D-1 path. */
+      state.viewBrowsing = true;
+      refreshViewportChrome();
+      return true;
+    }
     if (!state.pageView) return showWholePage(caretPage() + direction);
     var shown = Math.floor(viewRow() / ROWS_PER_SHEET);
     var target = shown + direction;
@@ -1058,7 +1116,8 @@
        line and hid the other 849px. With the offset at 0 the whole help sheet (96..961.39) sits
        inside the 960px throat, so every line is visible. The editing position is restored by
        positionEditor() when the sheet closes. */
-    el.paper.style.transform = "translateY(" + (state.help ? 0 : paperFeedPx(extraRows)) + "px)";
+    el.paper.style.transform = "translateY(" +
+      ((state.help || state.wps) ? 0 : paperFeedPx(extraRows)) + "px)";
   }
 
   function syncSheet(force) {
@@ -1376,8 +1435,7 @@
        of the machine, i.e. it is not below the row standing at the print line. The row at the
        print line sits at PRINT_LINE_TOP_PX in the stage, so a row's screen position is that
        constant plus its distance from the print-line row. */
-    var pageStart = state.viewSheet * ROWS_PER_SHEET;
-    if (pick.row < pageStart || pick.row > viewRow()) {
+    if (!rowVisibleOnSheet(pick.row)) {
       left.style.display = right.style.display = "none";
       return;
     }
@@ -1386,8 +1444,7 @@
        the trailing mark has no last character cell to sit after. */
     var z = currentZoom();
     var xFirst = RAIL_MARGIN_PX * z;                               /* first cell's left edge */
-    var yCentre = (PRINT_LINE_TOP_PX + (pick.row - viewRow()) * ROW_PX +
-                   ROW_PX / 2) * z;                                /* line's vertical centre */
+    var yCentre = (rowTopPx(pick.row) + ROW_PX / 2) * z;           /* line's vertical centre */
     /* eight character cells in DOCUMENT space: the gap grows with document ZOOM, so the mark
        always reads as eight characters away from the row's first cell (PM 2026-10-06) */
     left.style.left = (xFirst - RAIL_LEFT_CELLS * RAIL_UNIT_PX * z - RAIL_W) + "px";
@@ -1411,6 +1468,7 @@
      there is no insertion point to mark (editor unfocused or a selection is active). Same read-only geometry and the same two hooks as the rail marks
      (syncSheet / applyZoom) - no text is written, no state is created, no layout is affected. */
   var TYPE_LINE_CELLS = 6;     /* six character cells long, in document units */
+  var MASK_W = 2;              /* the caret patch's width, in document px (1.1.5.2 value) */
   var TYPE_LINE_H = 2;         /* rail thickness, in document px */
   var TYPE_TICK_W = 2;         /* graduation stroke width, in document px */
   var TYPE_TICK_LONG_CELLS = 2;  /* full-character-height tick, this many cells left of the caret */
@@ -1436,10 +1494,9 @@
     /* [1.1.6.1] same rule as the rail marks: the carriage rail belongs to a row that is out of
        the machine on the sheet the throat is showing, so a caret that browsing has taken off
        that sheet - or below the print line - hides the whole rail. */
-    var pageStart = state.viewSheet * ROWS_PER_SHEET;
-    if (pick.row < pageStart || pick.row > viewRow()) { hideAll(); return; }
+    if (!rowVisibleOnSheet(pick.row)) { hideAll(); return; }
     var z = currentZoom();
-    var colTop = PRINT_LINE_TOP_PX + (pick.row - viewRow()) * ROW_PX;
+    var colTop = rowTopPx(pick.row);
     var xRight = (RAIL_MARGIN_PX + pick.colUnits * RAIL_UNIT_PX) * z;   /* the caret itself */
     var lineTop = (colTop + ROW_PX) * z;                 /* the carriage line's own row */
     var h = (TYPE_LINE_H * z) + "px";
@@ -1478,11 +1535,21 @@
       long.style.height = (ROW_PX * z) + "px";
       short.style.height = (ROW_PX / 2 * z) + "px";
     }
-    /* [1.1.6.1 V24] The native caret is visible again, so the paper-coloured patch that used to
-       cover it is never shown. The element is left in the DOM (and hidden) rather than deleted,
-       because the UI-integration build may still want a placeholder there; nothing positions it
-       any more. */
-    if (mask) mask.style.display = "none";
+    /* [2026-10-16] V24 retired the paper-coloured patch in the skeuomorphic view (the native
+       caret is the visible one there). WPS mode IS the 1.1.5.2 page view, so there the patch is
+       back where 1.1.5.2 had it: it covers the native caret (caret-color:transparent) and the
+       carriage rail marks the position instead. */
+    if (mask) {
+      if (state.wps) {
+        mask.style.left = ((RAIL_MARGIN_PX + pick.colUnits * RAIL_UNIT_PX) * z) + "px";
+        mask.style.top = (rowTopPx(pick.row) * z) + "px";
+        mask.style.width = (MASK_W * z) + "px";
+        mask.style.height = (ROW_PX * z) + "px";
+        mask.style.display = "block";
+      } else {
+        mask.style.display = "none";
+      }
+    }
   }
 
   function onCaretMoved() { syncSheet(false); }
@@ -1629,7 +1696,10 @@
        around an 816 x 1056 sheet, so fitting only the sheet would push the machine's lower edge and
        its 207.11px left overhang off screen (and the page must never scroll - R10). This is also
        the delivery's own budget: (viewport height - 81) / 1092.098. */
-    var z = Math.min((vw - 36) / MACHINE_W, (vh - chrome) / MACHINE_H);
+    /* [2026-10-16] WPS mode has no machine, so FIT fits the PAPER again - exactly the 1.1.5.2
+       formula the field is used to. */
+    var z = Math.min((vw - 36) / (state.wps ? PAPER_W : MACHINE_W),
+                     (vh - chrome) / (state.wps ? PAPER_H : MACHINE_H));
     if (!isFinite(z) || z <= 0) z = 1;
     return Math.max(0.25, Math.min(2, z));
   }
@@ -1649,8 +1719,9 @@
        the page counter. Machine, sheet and chrome therefore share one scale (R4 §6.2), and the
        stage-inner reserves exactly the frame's footprint at that scale. */
     if (el.machineFrame) el.machineFrame.style.transform = "scale(" + z + ")";
-    el.stageInner.style.width = (MACHINE_W * z) + "px";
-    el.stageInner.style.height = (MACHINE_H * z) + "px";
+    /* WPS mode reserves the paper's footprint (the frame is styled down to the sheet there) */
+    el.stageInner.style.width = ((state.wps ? PAPER_W : MACHINE_W) * z) + "px";
+    el.stageInner.style.height = ((state.wps ? PAPER_H : MACHINE_H) * z) + "px";
     el.btnZoom.textContent = "ZOOM " + ZOOM_STEPS[state.zoomIndex].label;
     /* 1.1.1: the rail marks keep their 4x8px size but must follow the paper's new scale */
     if (!helpHidesRails) {
@@ -1696,7 +1767,11 @@
     if (el.editor) {
       el.editor.style.color = "transparent";
       el.editor.style.webkitTextFillColor = "transparent";
-      el.editor.style.caretColor = ribbon;
+      /* [2026-10-16] WPS mode is the 1.1.5.2 page view: there the native caret was covered by
+         the paper-coloured mask and the carriage rail showed the position, so the caret-colour
+         assignment above must not reach it. This is an INLINE style, so the CSS rule alone
+         (html[data-wps="on"] #editor) would lose to it. */
+      el.editor.style.caretColor = state.wps ? "transparent" : ribbon;
     }
     if (el.ink) el.ink.style.webkitTextFillColor = "";   /* never let the layer override a run */
     el.btnPaper.textContent = "PAPER " + PAPER_COLORS[state.paperIndex].name;
@@ -2246,6 +2321,8 @@
     /* [2026-10-16] the full-page browse pair */
     if (el.btnPageUp) el.btnPageUp.addEventListener("click", function () { pageFlip(-1); });
     if (el.btnPageDown) el.btnPageDown.addEventListener("click", function () { pageFlip(1); });
+    /* [2026-10-16] the WPS switch (1.1.5.2 page view <-> skeuomorphic interaction) */
+    if (el.btnWps) el.btnWps.addEventListener("click", function () { applyWps(!state.wps); });
 
     on(el.btnReturn, function () {
       state.autoReturn = !state.autoReturn;
