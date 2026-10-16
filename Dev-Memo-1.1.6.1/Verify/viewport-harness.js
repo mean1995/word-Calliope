@@ -324,6 +324,88 @@ function wheel(page, dy) {
             JSON.stringify(zoomReport.map(function (r) { return [r.label, r.scrollH, r.vh, r.scrollY]; })));
   await page.evaluate(function () { document.getElementById("btn-zoom").click(); });   /* back to FIT */
   await page.waitForTimeout(120);
+  /* ---- T12 the full-page browse pair (2026-10-16, VIC) -----------------------------------
+     PAGE UP / PAGE DOWN - the two Primary Controls and the physical keys, Y-2 settled - look at
+     the document one WHOLE PAGE at a time: the sheet is all the way out (feed 0), so its 54 rows
+     are on screen together. The caret never moves, it is browsing (AA names the page on screen),
+     it is silent, and the zoom is held at FIT for as long as the view owns the viewport. VIC's
+     rule: a PAGE DOWN whose target page IS the page being edited, with the caret not at that
+     page's end, leaves the view and returns to the editing position. */
+  async function pageViewState(pg) {
+    return pg.evaluate(function () {
+      var clip = document.getElementById("paper-clip").getBoundingClientRect();
+      var paper = document.getElementById("paper").getBoundingClientRect();
+      var fr = document.getElementById("machine-frame").getBoundingClientRect();
+      var z = fr.width / 1230.2131979695432;
+      return {
+        zoom: document.querySelector("#btn-zoom").textContent.trim(),
+        zoomDisabled: document.querySelector("#btn-zoom").disabled,
+        page: document.documentElement.getAttribute("data-page"),
+        caret: document.querySelector("#editor").selectionStart,
+        paperTopDoc: Math.round((paper.top - clip.top) / z)
+      };
+    });
+  }
+  await page.evaluate(function () {
+    var ta = document.querySelector("#editor");
+    var line = "ABCDEFGHIJ".repeat(7);
+    var out = [];
+    for (var i = 0; i < 150; i++) out.push(line);            /* exactly 3 pages */
+    ta.value = out.join("\n");
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    ta.focus();
+    var at = 70 * 71;                                        /* page 2, row 70: not a page end */
+    ta.setSelectionRange(at, at);
+    ta.dispatchEvent(new Event("select", { bubbles: true }));
+  });
+  await page.waitForTimeout(140);
+  var pv0 = await pageViewState(page);
+  check("T12 pre-condition: the caret sits on page 2 of 3, mid-page", pv0.page, "02/03");
+  checkTrue("T12 pre-condition: the sheet is only part way out", pv0.paperTopDoc > 400, String(pv0.paperTopDoc));
+
+  await page.click("#btn-pagedown");
+  await page.waitForTimeout(140);
+  var pv1 = await pageViewState(page);
+  check("T12 PAGE DOWN shows the next whole page", pv1.page, "03/03");
+  check("T12 the whole page is out of the machine (feed 0)", pv1.paperTopDoc, 0);
+  check("T12 browsing does not move the caret", pv1.caret, pv0.caret);
+  checkTrue("T12 the page view locks ZOOM to FIT and disables the control",
+            pv1.zoom === "ZOOM FIT" && pv1.zoomDisabled === true, JSON.stringify(pv1));
+
+  await page.click("#btn-pageup");
+  await page.waitForTimeout(140);
+  var pv2 = await pageViewState(page);
+  check("T12 PAGE UP shows the previous whole page", pv2.page, "02/03");
+  check("T12 the whole page is out (feed 0)", pv2.paperTopDoc, 0);
+
+  await page.click("#btn-pageup");
+  await page.waitForTimeout(140);
+  await page.click("#btn-pageup");
+  await page.waitForTimeout(140);
+  var pv3 = await pageViewState(page);
+  check("T12 the view clamps at the first page (no blank page)", pv3.page, "01/03");
+
+  await page.click("#btn-pagedown");
+  await page.waitForTimeout(140);
+  var pv4 = await pageViewState(page);
+  checkTrue("T12 PAGE DOWN onto the edited page returns to the editing position",
+            pv4.page === "02/03" && pv4.paperTopDoc === pv0.paperTopDoc && pv4.zoomDisabled === false,
+            JSON.stringify(pv4));
+  check("T12 the caret is still where it was", pv4.caret, pv0.caret);
+
+  await page.focus("#editor");
+  await page.keyboard.press("PageDown");
+  await page.waitForTimeout(140);
+  var pv5 = await pageViewState(page);
+  checkTrue("T12 the physical Page Down key does the same thing",
+            pv5.page === "03/03" && pv5.paperTopDoc === 0 && pv5.caret === pv0.caret,
+            JSON.stringify(pv5));
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(160);
+  var pv6 = await pageViewState(page);
+  checkTrue("T12 Escape leaves the page view and gives the zoom back",
+            pv6.page === "02/03" && pv6.zoomDisabled === false, JSON.stringify(pv6));
+
   /* ---- T10 output isolation -------------------------------------------------- */
   await seed(page, ROWS);
   s = await snapshot(page);

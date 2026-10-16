@@ -63,8 +63,17 @@
   var Y1_ACTIVE_NEEDS_VIEW_ON_CARET = true;   /* Y-1: Active also requires the view to show the
                                                  caret's page, or the head would sit on another
                                                  sheet's paper while matching the end column */
-  var Y2_PAGEUP_MOVES_CARET = true;           /* Y-2: Page Up/Down stay modern navigation (the
-                                                 R4 §2.2 table); only the wheel browses */
+  /* [2026-10-16, VIC] Y-2 is SETTLED by the full-page browse pair: Page Up / Page Down no longer
+     move the caret by a sheet, they look at the document one whole page at a time (pageFlip()).
+     These two switches are the only product choices left inside it. */
+  var PAGEVIEW_LOCKS_FIT = true;              /* a whole page is 960 document px and the machine
+                                                 adds 132.10 below it, so above FIT the frame cannot
+                                                 fit the viewport: entering the page view parks the
+                                                 reader's zoom and locks FIT; leaving restores it */
+  var PAGEDOWN_RETURNS_ON_CARET_PAGE = true;  /* VIC's rule: a PAGE DOWN whose target page IS the
+                                                 page being edited, with the caret not at that
+                                                 page's end, leaves the page view and returns to
+                                                 the editing position instead of showing it */
   var Y4_COUNTER_OVERFLOW_ALL = true;         /* Y-4: E1/E1 for the whole window (the
                                                  VIC-meeting ruling) instead of AA/E1 */
   var Y5_AA_IS_TOP_VISIBLE_ROW = true;        /* Y-5: AA = the page of the top visible row */
@@ -134,6 +143,8 @@
     el.btnSound = document.getElementById("btn-sound");
     el.btnPaper = document.getElementById("btn-paper");
     el.btnRibbon = document.getElementById("btn-ribbon");
+    el.btnPageUp = document.getElementById("btn-pageup");
+    el.btnPageDown = document.getElementById("btn-pagedown");
     el.btnHelp = document.getElementById("btn-help");
   }
 
@@ -158,6 +169,8 @@
     lastInputData: "",
     helpCounter: null,          /* §5.4 the page numbers shown when HELP opened (frozen while up) */
     helpZoomIndex: null,        /* the reader's zoom, parked while HELP is locked to FIT */
+    pageView: false,            /* the full-page browse view owns the viewport (2026-10-16) */
+    pageViewZoomIndex: null,    /* the reader's zoom, parked while it is locked to FIT */
     layout: null,
     autoReturn: true,      /* §16 */
     zoomIndex: 0,
@@ -367,6 +380,9 @@
     state.viewSheet = 0;         /* 1.1.6.1 a rebuilt editor starts on the first sheet, row 0 */
     state.viewIntraRows = 0;
     state.viewBrowsing = false;
+    /* [2026-10-16] a rebuilt document leaves the full-page view and gives the zoom back */
+    if (state.pageView) leavePageView();
+    state.pageViewZoomIndex = null;
     wheelAcc = 0;
     browseClear();
     state.pendingCaret = null;   /* §P0 a rebuilt editor has no earlier selection to put back */
@@ -466,6 +482,12 @@
   function applyHelpMode(on) {
     if (!el.editor) return;
     if (on) {
+      /* [2026-10-16] FIRST, before anything is captured: leaving the full-page view puts the view,
+         the zoom and the page counter back on the document's own position, so HELP freezes the
+         counter at the DOCUMENT's page (R4 §5.4) and parks the READER's zoom, not the page view's
+         FIT. (The view holds a parked zoom of its own; nesting them the other way round would
+         hand the reader the wrong zoom back.) */
+      if (state.pageView) exitPageView();
       /* remember the real editing position before the control is taken away (§P0 gives the
          capture; here we only make sure it happens before the selection can be lost) */
       captureCaret();
@@ -527,7 +549,8 @@
   function setDocumentControlsEnabled(yes) {
     if (!yes) returnDisabledByDesign = el.btnReturn ? el.btnReturn.disabled === true : false;
     [el.btnNew, el.btnOpen, el.btnSave, el.btnPdf,
-     el.btnReturn, el.btnSound, el.btnPaper, el.btnRibbon].forEach(function (b) {
+     el.btnReturn, el.btnSound, el.btnPaper, el.btnRibbon,
+     el.btnPageUp, el.btnPageDown].forEach(function (b) {
       if (!b) return;
       if (yes) b.disabled = (b === el.btnReturn) ? returnDisabledByDesign : false;
       else b.disabled = true;
@@ -758,16 +781,24 @@
     return t > 1 ? t - 1 : 0;
   }
 
+  /* [2026-10-16] The full-page view stands on a SHEET, not on the text: a page holds 54 rows, so
+     it may feed to that page's last row even when the document ends earlier - that is exactly what
+     makes a whole page visible, empty rows and all. Only the page view asks for it. */
+  function maxPageViewRow() {
+    var pages = Math.max(1, Math.ceil(Math.max(1, totalRows()) / ROWS_PER_SHEET));
+    return pages * ROWS_PER_SHEET - 1;
+  }
+
   function minViewRow() { return 0; }
 
   function viewRow() { return state.viewSheet * ROWS_PER_SHEET + state.viewIntraRows; }
 
-  function setViewRow(row) {
+  function setViewRow(row, wholeSheet) {
     if (!isFinite(row)) return false;
     row = Math.floor(row);
     var min = minViewRow();
     if (row < min) row = min;
-    var max = maxViewRow();
+    var max = wholeSheet ? maxPageViewRow() : maxViewRow();
     if (row > max) row = max;
     var sheet = Math.floor(row / ROWS_PER_SHEET);
     var intra = row - sheet * ROWS_PER_SHEET;
@@ -807,6 +838,82 @@
     var moved = setViewRow(info.row);
     state.viewBrowsing = false;
     return moved;
+  }
+
+  /* ---- 2026-10-16 (VIC): the FULL-PAGE view ----------------------------------------------
+     PAGE UP / PAGE DOWN (and the physical Page Up / Page Down keys, which VIC moved here from
+     "move the caret by a sheet" - Y-2 is settled by this) look at the document ONE WHOLE PAGE at
+     a time: the sheet is all the way out of the machine (feed 0), so its 54 rows are on screen
+     together. It is BROWSING, never editing: the caret does not move, state.viewBrowsing is set
+     (so AA names the page on screen - Y-5 - and the print head hides), it is silent, it never
+     animates the feed and it changes no pagination. Any input, a paper click or Escape ends it
+     through the ordinary D-1 paths, which put the view back on the caret. */
+  function pageCount() {
+    return Math.max(1, Math.ceil(Math.max(1, totalRows()) / ROWS_PER_SHEET));
+  }
+
+  function caretPage() { return Math.floor(caretInfo().row / ROWS_PER_SHEET); }
+
+  /* "the caret is not at that page's end": not on the page's last row, and not at the end of the
+     document either - both mean there is still writing to do on that page. */
+  function caretAtPageEnd() {
+    var row = caretInfo().row;
+    return (row % ROWS_PER_SHEET) === (ROWS_PER_SHEET - 1) || row >= Math.max(0, totalRows() - 1);
+  }
+
+  function showWholePage(page) {
+    var last = pageCount() - 1;
+    if (page < 0 || page > last) return false;
+    if (!state.pageView) state.pageViewZoomIndex = state.zoomIndex;
+    state.pageView = true;
+    state.viewBrowsing = true;
+    if (PAGEVIEW_LOCKS_FIT) {
+      state.zoomIndex = 0;                      /* FIT: the only zoom that can show a whole page */
+      applyZoom();
+    }
+    /* the page's LAST row at the print line == the sheet is completely out of the machine */
+    setViewRow(page * ROWS_PER_SHEET + (ROWS_PER_SHEET - 1), true);
+    refreshViewportChrome();
+    if (el.btnZoom) el.btnZoom.disabled = true; /* the zoom is the page view's to hold */
+    return true;
+  }
+
+  /* Leaves the page view. The view itself is NOT set here - the caller either has set it or is
+     about to - so this is safe to call from viewToCaret()'s own path. */
+  function leavePageView() {
+    if (!state.pageView) return;
+    state.pageView = false;
+    if (state.pageViewZoomIndex !== null && state.pageViewZoomIndex !== undefined) {
+      state.zoomIndex = state.pageViewZoomIndex;
+    }
+    state.pageViewZoomIndex = null;
+    applyZoom();
+    if (el.btnZoom) el.btnZoom.disabled = state.help === true;
+  }
+
+  function exitPageView() {
+    if (!state.pageView) return false;
+    leavePageView();
+    viewToCaret();
+    refreshViewportChrome();
+    return true;
+  }
+
+  /* One PAGE UP (-1) or PAGE DOWN (+1). From the editing state it opens the page next to the
+     caret's page; inside the view it steps one page and CLAMPS at the first and last page (no
+     blank pages). VIC's rule: a PAGE DOWN whose target page is the page being edited, with the
+     caret not at that page's end, leaves the view and returns to the editing position. */
+  function pageFlip(direction) {
+    if (state.help) return false;
+    var pages = pageCount();
+    if (!state.pageView) return showWholePage(caretPage() + direction);
+    var shown = Math.floor(viewRow() / ROWS_PER_SHEET);
+    var target = shown + direction;
+    if (target < 0 || target > pages - 1) return false;
+    if (PAGEDOWN_RETURNS_ON_CARET_PAGE && direction > 0 && target === caretPage() && !caretAtPageEnd()) {
+      return exitPageView();
+    }
+    return showWholePage(target);
   }
 
   /* ---- browse suppression (D-1) -------------------------------------------------------
@@ -854,6 +961,7 @@
      eligibility formula read a stale "is the view showing the caret page" and silence the
      first keystroke after a browse. */
   function inputMoment() {
+    if (state.pageView) exitPageView();          /* any input returns to the editing position */
     browseClear();
     /* the same rule viewToCaret() uses: the caret's row goes back to the print line */
     var base = caretInfo().row;
@@ -863,23 +971,11 @@
     state.viewBrowsing = false;
   }
 
-  /* ---- D-2: Page Up / Page Down as real paging ----------------------------------------
-     The caret moves one sheet (54 rows) in either direction, keeping its column in units where
-     the target row is long enough, and the view follows through the ordinary caret path. It is
-     modern navigation: silent (S02) and never a line feed (P12). */
-  function pageCaret(direction) {
-    if (!el.editor || !state.layout) return false;
-    var info = caretInfo();
-    var rows = flattenRows(state.layout);
-    if (!rows.length) return false;
-    var target = info.row + direction * ROWS_PER_SHEET;
-    if (target < 0) target = 0;
-    if (target > rows.length - 1) target = rows.length - 1;
-    if (target === info.row) return false;
-    setCaret(offsetFromRowUnits(target, info.colUnits || 0));
-    syncSheet(false);
-    return true;
-  }
+  /* ---- D-2 RETIRED (2026-10-16, VIC) ---------------------------------------------------
+     Page Up / Page Down used to move the CARET one sheet (54 rows, keeping its column) and let
+     the view follow. VIC replaced that with the full-page view above, so the function is gone;
+     the keys and the two Primary Controls now call pageFlip(). Silent, no feed, no line change -
+     the same "modern navigation, never a line feed" rule (S02 / P12) still holds. */
 
   /* ---- D-4: a paper point becomes a document offset -----------------------------------
      Used ONLY for clicks outside the text column (the paper's margins and the slot area); a
@@ -971,7 +1067,9 @@
     var sheet = info.sheet < 0 ? 0 : info.sheet;
     /* The view follows the caret unless the user is browsing (D-1). `force` is the
        new-document / open / recovery path: it always re-anchors, and stays silent. */
-    var follows = force || !browseActive();
+    /* [2026-10-16] the full-page view owns the viewport: the caret may move (a click inside the
+       visible page) without the sheet being pulled back to the print line. */
+    var follows = !state.pageView && (force || !browseActive());
     state.sheet = sheet;
     if (follows) viewToCaret();
     /* [1.1.6.1 S01/S02/S04] This function no longer makes a sound. 1.1.5.1 played the sheet
@@ -1473,15 +1571,15 @@
     /* Leave every shortcut with the operating system (§20). */
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-    /* [1.1.6.1 D-2 / Y-2] Page Up / Page Down move the caret by one sheet and the view follows;
-       they stay modern navigation (silent, instant, no feed - S02/P12). The engine cannot do
-       this here: with the control sized to the whole document and clipped, it computes its
-       paging step from a viewport it does not have, and measured on Safari it moved neither
-       the caret nor the page. Deliberately placed AFTER the composition guard so an IME
-       candidate list keeps its own Page Up / Page Down. */
-    if (Y2_PAGEUP_MOVES_CARET && (e.key === "PageUp" || e.key === "PageDown")) {
+    /* [2026-10-16, VIC - Y-2 settled] Page Up / Page Down look at the document one WHOLE PAGE at
+       a time (the same action as the two Primary Controls). They stay modern navigation: silent,
+       instant, no feed, and the caret never moves. The engine cannot do this here: with the
+       control sized to the whole document and clipped it computes its paging step from a viewport
+       it does not have, and on Safari it moved neither the caret nor the page. Deliberately placed
+       AFTER the composition guard so an IME candidate list keeps its own Page Up / Page Down. */
+    if (e.key === "PageUp" || e.key === "PageDown") {
       e.preventDefault();
-      pageCaret(e.key === "PageDown" ? 1 : -1);
+      pageFlip(e.key === "PageDown" ? 1 : -1);
       return;
     }
 
@@ -2145,6 +2243,9 @@
     /* §H ZOOM is bound directly, NOT through on(): it keeps working while the HELP sheet is up,
        so a reader who finds the sheet too small can scale it. */
     el.btnZoom.addEventListener("click", cycleZoom);
+    /* [2026-10-16] the full-page browse pair */
+    if (el.btnPageUp) el.btnPageUp.addEventListener("click", function () { pageFlip(-1); });
+    if (el.btnPageDown) el.btnPageDown.addEventListener("click", function () { pageFlip(1); });
 
     on(el.btnReturn, function () {
       state.autoReturn = !state.autoReturn;
@@ -2234,7 +2335,12 @@
        while the sheet is up. It is the only key this listener accepts, and it does nothing
        at all when the sheet is not showing. */
     document.addEventListener("keydown", function (e) {
-      if (e.key !== "Escape" || !state.help) return;
+      if (e.key !== "Escape") return;
+      if (!state.help) {
+        /* [2026-10-16] Escape also backs out of the full-page view */
+        if (state.pageView) { e.preventDefault(); exitPageView(); }
+        return;
+      }
       e.preventDefault();
       state.help = false;
       applyHelpMode(false);
