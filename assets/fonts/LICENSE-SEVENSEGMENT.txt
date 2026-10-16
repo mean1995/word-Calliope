@@ -1,0 +1,20 @@
+Word Kalliope - Font License Notice
+================================================================
+
+File: /assets/fonts/font-counter.ttf
+----------------------------------------------------------------
+Seven Segment Regular, version 1.002  (delivered as "7 Segment.ttf")
+
+  Vendor       : Krafti Lab (designer: Onur Cem TAN)
+  Vendor site  : http://www.kraftilab.com   contact: info@kraftilab.com
+  Vendor terms : as published by Krafti Lab for this font
+  sha256       : d9b795b5cfeb7947e8c9e34f97192fccdb2a00622127f1c515a397552d45c3e9
+  Delivered    : VIC, 2026-10-16 (workspace folder "Seven Segment/")
+  Shipped      : byte-for-byte unchanged - TrueType, unitsPerEm 2048, 160 code points,
+                 no subset and no re-encode. The delivered binary carries no licence
+                 string of its own (name table nameID 0/13/14 absent).
+
+  In Word Kalliope this file is used by ONE element only: the machine's page-counter
+  window (#page-counter, face "KalliopeCounter"). It is deliberately NOT part of
+  --font-stack, so it can never reach the document grid, the paper, the print sheets or
+  the data-grid capability guard.

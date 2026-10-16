@@ -26,19 +26,18 @@
   src:url("assets/fonts/font-button.woff2") format("woff2");
   font-weight:400; font-style:normal; font-display:block;
 }
-/* Page-counter face (1.1.6.1, VIC delivery 2026-10-16): the 7-Segment font by Jan Bobrowski,
-   SIL OFL 1.1 - full notice, provenance and coverage in assets/fonts/LICENSE-7SEGMENT.txt.
-   It is shipped byte-for-byte as delivered, so it is WOFF1 and is NOT subset (112 code points).
-   Like KalliopeButton it is deliberately NOT part of --font-stack: the page window is a
-   decorative machine face and must never reach the document grid or the data-grid capability
-   guard (§5.9 / §11.8). The face has NO "/" (U+002F), so the AA/BB separator is supplied per
-   glyph by the next family in the counter's own stack - which is why .page-counter keeps
-   KalliopeLatin behind it. font-display:block matches KalliopeButton and §5.9 (no width jump);
-   the file is local, so there is no network wait. Nothing loads in this build either:
-   #page-counter is display:none until data-ui-art="ready". */
+/* Page-counter face (1.1.6.1, VIC delivery 2026-10-16): the Seven Segment font by Krafti Lab
+   - identity, provenance and sha256 in assets/fonts/LICENSE-SEVENSEGMENT.txt. It is shipped
+   byte-for-byte as delivered, so it is TrueType (not WOFF) and is NOT subset (160 code points).
+   It carries its own "/", so the AA/BB separator needs no fallback. Like KalliopeButton it is
+   deliberately NOT part of --font-stack: the page window is a decorative machine face and must
+   never reach the document grid or the data-grid capability guard (§5.9 / §11.8).
+   font-display:block matches KalliopeButton and §5.9 (no width jump); the file is local, so
+   there is no network wait. Nothing loads in this build either: #page-counter is display:none
+   until data-ui-art="ready". */
 @font-face{
   font-family:"KalliopeCounter";
-  src:url("assets/fonts/font-counter.woff") format("woff");
+  src:url("assets/fonts/font-counter.ttf") format("truetype");
   font-weight:400; font-style:normal; font-display:block;
 }
 
@@ -99,15 +98,16 @@
   --counter-w:97.63596809282089px;
   --counter-h:26.627991298042062px;
 
-  /* §5.9 the page-counter face and its size. VIC delivered 7segment.woff (7-Segment, Jan
-     Bobrowski, SIL OFL 1.1) on 2026-10-16; it is the only face of this window and, per §11.8,
-     it is NOT in --font-stack. The five cells of "AA/BB" - and of "E1/E1" - are
-       4 x 0.46875em (the face's uniform advance for every digit and capital)
-     + 1 x 0.5em      (KalliopeLatin's "/", the one glyph this face lacks)  = 2.375em,
-     and the face's ascender + descender is 1.03125em (fontTools, unitsPerEm 1024: 864 + 192).
-     Sized so the whole em box still fits the r1 window height, which is the binding limit:
-       26.627991298042062 / 1.03125 = 25.82px  -> 25px   (ink 25.78px, 0.85px spare)
-       25px x 2.375em = 59.38px of 97.63596809282089px   (60.8%, centred)
+  /* §5.9 the page-counter face and its size. VIC delivered "7 Segment.ttf" (Seven Segment,
+     Krafti Lab, VIC 2026-10-16) - the only face of this window and, per §11.8, NOT in
+     --font-stack. Measured with fontTools, unitsPerEm 2048:
+       advances  : "0" 1028 (0.501953em), "1" 376 (0.183594em), "3 7 C E" 931 (0.454590em),
+                   "/" 1110 (0.541992em) - so the face is PROPORTIONAL, not tabular
+       em ink box: ascender 1770 + descender 357 = 2127 (1.038574em)
+     The window height is the binding limit:
+       26.627991298042062 / 1.038574 = 25.64px  -> 25px   (em box 25.96px, 0.66px spare)
+     Widest value is "88/88" = 5222/2048 = 2.549805em -> 63.75px of 97.63596809282089px
+     (centred; "11/11" is only 31.91px because of the narrow "1"), digit ink 0.7002em = 17.5px.
      Re-measured from the browser in mechanical-harness M12. The type inside the box is a dev
      decision; position / material / colour / size of the window stay UI's (§5.7). */
   --counter-font:"KalliopeCounter", "KalliopeLatin", ui-monospace, monospace;
@@ -435,8 +435,9 @@ html,body{
   /* the window is declared as 5 fixed character cells (AA/BB and E1/E1 are both 5), so a
      value change never re-flows it (§5.7). The face is a SITE decision, not in --font-stack
      (§5.9 / §11.8): the page-number font must not join the data-grid capability guard. Since
-     1.1.6.1 it is the delivered KalliopeCounter (7-Segment); KalliopeLatin stays behind it
-     because that face has no "/", and the fallback is what draws the separator. */
+     1.1.6.1 it is the delivered KalliopeCounter (Seven Segment), which carries its own "/";
+     KalliopeLatin stays behind it only as a safety net for the 0-9 / A-Z / "/" the window can
+     print, never as the normal source of a glyph. */
   font-family:var(--counter-font);
   font-size:var(--counter-font-size);
   line-height:var(--counter-h);
