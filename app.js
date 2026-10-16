@@ -156,7 +156,8 @@
     editSnap: null,
     lastInputType: "",
     lastInputData: "",
-    helpCounter: null,     /* §5.4 the page numbers shown when HELP opened (frozen while up) */
+    helpCounter: null,          /* §5.4 the page numbers shown when HELP opened (frozen while up) */
+    helpZoomIndex: null,        /* the reader's zoom, parked while HELP is locked to FIT */
     layout: null,
     autoReturn: true,      /* §16 */
     zoomIndex: 0,
@@ -405,7 +406,8 @@
      notes in the manuscript are LAYOUT INSTRUCTIONS and are deliberately NOT part of the
      text. Each entry is ONE ROW of the 78-unit grid: the breaks below are GRID breaks, not
      paragraph breaks (an empty entry is a paragraph gap), and white-space:pre keeps them
-     exactly as written. 45 rows of the 54 a sheet holds.
+     exactly as written. 47 rows of the 54 a sheet holds (45 as supplied + a blank row and the
+     compatibility row added on 2026-10-16 by VIC's instruction).
      A row carrying a marked word is a single entry built from several <span>s - never two
      entries, or the grid would spend two rows on one line of text. */
   HELP_SHEET_HTML = [
@@ -453,7 +455,11 @@
     "<span class=\"h-blue\">“And my heart is a little larger than the entire universe.”</span>",
     "<span></span>",
     "<span>这大概也是 Καλλιόπη 想保留的东西：纸张有边界，文字有行数，机器极其有限；而坐在</span>",
-    "<span>它前面的人，“一颗心”也可以略大于整个宇宙。</span>"
+    "<span>它前面的人，“一颗心”也可以略大于整个宇宙。</span>",
+    "<span></span>",
+    /* 2026-10-16, by VIC's instruction: one BLACK compatibility line, appended as the sheet's
+       last row (55 of the 78 grid units, so it stays ONE row with white-space:pre). */
+    "<span>兼容：1080P、MacBook 13 inch、ipad 13 inch，Safari 全屏</span>"
   ].join("\n");
   /* HELPSHEET:END */
 
@@ -469,6 +475,12 @@
          the sheet closes. */
       state.helpCounter = counterValues();
       updateCounter();
+      /* [2026-10-16, VIC] ZOOM is LOCKED TO FIT for as long as the help sheet is up: the sheet is
+         a fixed 865.39px of copy and must be read whole, so the reader may not scale it away (or
+         in) from under the layout. The reader's own zoom comes back untouched when HELP closes. */
+      state.helpZoomIndex = state.zoomIndex;
+      state.zoomIndex = 0;
+      applyZoom();
       landFeed();                                  /* no paper motion may outlive the sheet */
       el.editor.disabled = true;                   /* no typing, no selection, no IME, no drop */
       el.editor.setAttribute("tabindex", "-1");
@@ -490,8 +502,14 @@
       el.btnHelp.textContent = "HELP";
       /* [1.1.6.1 R4 §5.4] the document's own page numbers come back with the document */
       state.helpCounter = null;
-      /* [2026-10-16] the sheet came out at offset 0 while HELP was up; put the editing position
-         (the flow's page offset and the paper's feed) back exactly as it was */
+      /* [2026-10-16] the sheet came out at offset 0 and the zoom was pinned to FIT while HELP
+         was up; put the reader's own zoom and the editing position (flow page offset + paper
+         feed) back exactly as they were */
+      if (state.helpZoomIndex !== null && state.helpZoomIndex !== undefined) {
+        state.zoomIndex = state.helpZoomIndex;
+      }
+      state.helpZoomIndex = null;
+      applyZoom();
       positionEditor();
       try { el.editor.focus({ preventScroll: true }); } catch (e) { el.editor.focus(); }
       scheduleRecoveryCheck();
@@ -501,8 +519,9 @@
   /* The document controls, as a set. AUTO RETURN has to stay disabled afterwards: it is
      disabled for good by syncControls() because OFF is not offered, so restoring it blindly
      would change product behaviour. Remembering that one flag is cheaper than re-deriving it.
-     §H ZOOM is deliberately NOT in this set: while HELP is up it stays live, because the sheet
-     has to be readable - if the help text is too small the reader must be able to scale it. */
+     §H ZOOM used to stay live while HELP was up; VIC ruled on 2026-10-16 that HELP is locked to
+     FIT instead, so ZOOM is disabled with the other controls and the zoom index is put back on
+     close. */
   var returnDisabledByDesign = false;
 
   function setDocumentControlsEnabled(yes) {
@@ -513,7 +532,10 @@
       if (yes) b.disabled = (b === el.btnReturn) ? returnDisabledByDesign : false;
       else b.disabled = true;
     });
-    if (!yes) el.btnZoom.disabled = false;       /* the one control that keeps working (§H) */
+    /* [2026-10-16, VIC] ZOOM no longer stays live while HELP is up: the help sheet is locked to
+       FIT, so its control is disabled with the rest and comes back enabled with them. It is NOT
+       in the list above, so it is set from the same flag here - both directions. */
+    if (el.btnZoom) el.btnZoom.disabled = !yes;
   }
 
   /* §H the two rail triangles belong to the editing position; while the HELP sheet is up there

@@ -119,6 +119,21 @@ function checkTrue(name, cond, detail) {
              docHeight: Math.round((s.bottom - s.top) / z),
              docThroat: Math.round((c.bottom - c.top) / z) };
   });
+  /* [2026-10-16, VIC] HELP is locked to FIT: the sheet is fixed 865.39px of copy, so the reader
+     may not scale it; the ZOOM control is disabled with the other document controls and the
+     reader's own zoom is parked and restored on close. */
+  var helpZoom = await page.evaluate(function () {
+    return { label: document.querySelector("#btn-zoom").textContent.trim(),
+             disabled: document.querySelector("#btn-zoom").disabled };
+  });
+  checkTrue("R3 HELP locks ZOOM to FIT and disables the control",
+            helpZoom.label === "ZOOM FIT" && helpZoom.disabled === true, JSON.stringify(helpZoom));
+  var helpLastRow = await page.evaluate(function () {
+    var t = document.querySelector(".help-body").textContent.split("\n");
+    return t[t.length - 1];
+  });
+  check("R3 the help sheet ends with the compatibility row",
+        helpLastRow, "兼容：1080P、MacBook 13 inch、ipad 13 inch，Safari 全屏");
   checkTrue("R3 the whole HELP sheet fits inside the throat (no line is cut off)",
             helpBox.docTop >= -1 && helpBox.docBottom <= helpBox.docThroat + 2 &&
             helpBox.docHeight > 800,
@@ -131,6 +146,12 @@ function checkTrue(name, cond, detail) {
   });
   check("R3 leaving HELP restores the editing position", afterHelp.caret, beforeSwitch.caret);
   check("R3 the editor is editable again", afterHelp.disabled, false);
+  var zoomBack = await page.evaluate(function () {
+    return { label: document.querySelector("#btn-zoom").textContent.trim(),
+             disabled: document.querySelector("#btn-zoom").disabled };
+  });
+  checkTrue("R3 closing HELP gives the reader's own zoom back",
+            zoomBack.disabled === false, JSON.stringify(zoomBack));
   check("R3 HELP did not overwrite the recovery draft", afterHelp.draft, draftBefore === null ? null : draftBefore);
 
   /* ---- R4 AUTO RETURN OFF still stops ordinary characters at 78 units (§16) -- */
