@@ -1,11 +1,73 @@
 <!DOCTYPE html>
-<html lang="en" data-ui-art="ready" data-machine-front="whole">
+<html lang="en" data-machine-front="whole">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- ============================================================ 1.1.6.2 boot mask (CSS)
+     Loading screen and controlled first reveal (PM Development Order 1.1.6.2 §2–§4).
+     Inline and BEFORE the external stylesheet on purpose: the grey field and the wordmark
+     are part of the first paintable frame, so no sheet or half-built machine can show while
+     the app is still assembling. No image, no font file, no new request: system faces only.
+     Colours are fixed by the order: field #8d8a80, mark/LOADING #F8F8F6, rule #bcbab2,
+     quote #eeece5. Do not add buttons, dots, percentages, spinners or icons. -->
+<style>
+  html{background:#8d8a80}
+  #boot{
+    position:fixed; top:0; right:0; bottom:0; left:0;
+    z-index:2147483647;
+    display:flex; align-items:center; justify-content:center;
+    background:#8d8a80;
+    opacity:1;
+    transition:opacity 120ms linear;
+    -webkit-user-select:none; user-select:none;
+    cursor:default;
+  }
+  #boot.is-out{opacity:0}
+  #boot .boot-stack{
+    display:flex; flex-direction:column; align-items:center;
+    max-width:calc(100vw - 32px);
+    text-align:center;
+  }
+  #boot .boot-mark{
+    font-family:ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+    font-size:12px; line-height:16px; letter-spacing:.14em;
+    color:#F8F8F6;
+  }
+  #boot .boot-rule{
+    width:104px; height:1px; margin:10px 0;
+    background:#bcbab2;
+  }
+  #boot .boot-loading{
+    font-family:ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
+    font-size:13px; line-height:18px; letter-spacing:.06em;
+    color:#F8F8F6;
+  }
+  /* one line only. 12px is the order's value; the narrowest widths may ellipsis-clip at
+     display level (allowed by §3) - the string itself is never altered. */
+  #boot .boot-quote{
+    margin-top:18px;
+    font-family:-apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC",
+                "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size:12px; line-height:18px;
+    color:#eeece5;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    max-width:calc(100vw - 32px);
+    opacity:1;
+    /* the switch as a whole is ~150ms: 75ms fade out + 75ms fade in (PM order §3) */
+    transition:opacity 75ms linear;
+  }
+  #boot .boot-quote.is-fading{opacity:0}
+  @media (prefers-reduced-motion: reduce){
+    #boot, #boot .boot-quote{transition:none}
+  }
+  /* the mask is application chrome: it must never reach Print / Export PDF */
+  @media print{
+    #boot{display:none !important}
+  }
+</style>
 <title>Word Καλλιόπη</title>
 <link rel="stylesheet" href="style.css">
-<!-- Web App (1.1.6.1): installable from iPad Safari "Add to Home Screen" and macOS
+<!-- Web App (1.1.6.2): installable from iPad Safari "Add to Home Screen" and macOS
      Safari "Add to Dock". Every address below is relative to this file, because the
      published build lives in the /word-Calliope/ sub-path of GitHub Pages. -->
 <link rel="manifest" href="./manifest.webmanifest">
@@ -15,6 +77,294 @@
 <meta name="apple-mobile-web-app-title" content="Καλλιόπη">
 </head>
 <body>
+
+<!-- ============================================================ 1.1.6.2 boot mask (DOM)
+     First visible element. Removed by the inline coordinator below only after:
+       (a) app.js has built the editor, run the first FIT and signalled "app";
+       (b) its first Recovery decision has settled;
+       (c) KalliopeLatin / KalliopeButton / KalliopeCounter are settled;
+       (d) machine-rear / printhead / machine-front are loaded and decoded.
+     Audio, the ~20MB CJK face and the hidden logo.svg are NOT part of this gate
+     (PM order §4.3). The 11 quotes are inline strings: no JSON, no extra request. -->
+<div id="boot" role="status" aria-label="Loading">
+  <div class="boot-stack">
+    <div class="boot-mark">WORD KALLIOPE</div>
+    <div class="boot-rule"></div>
+    <div class="boot-loading">LOADING...</div>
+    <div class="boot-quote" id="boot-quote" aria-hidden="true">“宇宙那么长，时间就廉价到如沙土一样”</div>
+  </div>
+</div>
+<script>
+/* 1.1.6.2 boot coordinator - ES5, no dependencies, no network.
+   Quotes are locked verbatim by Development Order 1.1.6.2 §3: 10 regular (weight 1)
+   + 1 low-frequency (weight 1/3). The first line is drawn from the regular pool; the
+   low-frequency line can land in any later slot (including the first 4 s slot), so it
+   is reachable inside the 60 s cap. Wording, the “ ” quotes and the absence of a
+   trailing full stop are contractual - do not edit. */
+(function () {
+  "use strict";
+
+  var doc = document;
+  var root = doc.documentElement;
+  var bootEl = doc.getElementById("boot");
+  var quoteEl = doc.getElementById("boot-quote");
+  var perf = window.performance;
+  function now() { return (perf && perf.now) ? perf.now() : Date.now(); }
+  var t0 = now();
+  var tPaint = 0;
+  if (window.requestAnimationFrame) {
+    window.requestAnimationFrame(function () { if (!tPaint) tPaint = now(); });
+  }
+  function log(msg) { try { console.warn("[boot] " + msg); } catch (e) {} }
+
+  /* ---- quotes (verbatim, order §3) -------------------------------------------------- */
+  var QUOTES = [
+    "“狂欢通宵达诞，宴会不曾结束，欢愉之后的悲伤就不会来临”",
+    "“只是几百年之后，那永不崩坏的容颜就变成彼此的折磨”",
+    "“我知道，你的星星，上面全是沙漠，却盛产西红柿与胡萝卜”",
+    "“如当初我的宇宙，我的朋友，如今早已是漂浮的尘埃，唯我还永远年轻”",
+    "“宇宙那么长，时间就廉价到如沙土一样”",
+    "“再后来，星星又瞬间荒凉下去，快似一道光”",
+    "“开罗那个凌晨，阳台的风有尼罗河的腥味”",
+    "“喜爱的都会变成憎恨，新鲜的都会变得腐烂，热挚的都会变成虚伪”",
+    "“死亡是那样强大，一瞬之间，将一切摧毁；然后如暴雨后的阳光，突然放晴，万里无云”",
+    "“街头风景开始无关紧要，充满模糊的喜悦，见证两个女子的拥吻”",
+    "“我们制造片刻欢愉，而这片刻欢愉后的回忆是痛苦还是甜蜜，则不在售后范围内”"
+  ];
+  var REGULAR = 10;                 /* 0..9 regular, 10 low-frequency */
+  var TOTAL_WEIGHT = REGULAR + 1 / 3;
+
+  var current = -1;
+  var quoteTimer = null;
+  var fadeTimer = null;
+  var stopped = false;
+  var released = false;
+  var bootEnd = null;                /* harness-only timing mark */
+
+  /* weighted draw; `exclude` guarantees no two consecutive lines are identical */
+  function pick(exclude) {
+    for (var i = 0; i < 12; i++) {
+      var r = Math.random() * TOTAL_WEIGHT;
+      var idx = r < REGULAR ? Math.floor(r) : REGULAR;
+      if (idx !== exclude) return idx;
+    }
+    return exclude === REGULAR ? 0 : exclude + 1;
+  }
+  function setQuote(i) { if (quoteEl) quoteEl.textContent = QUOTES[i]; }
+
+  current = Math.floor(Math.random() * REGULAR);
+  setQuote(current);
+  quoteTimer = window.setInterval(function () {
+    if (stopped || released) return;
+    var next = pick(current);
+    if (!quoteEl) { current = next; return; }
+    quoteEl.className = "boot-quote is-fading";
+    fadeTimer = window.setTimeout(function () {
+      if (stopped || released) return;
+      current = next;
+      setQuote(current);
+      quoteEl.className = "boot-quote";
+    }, 75);
+  }, 4000);
+
+  /* the carousel never delays the reveal: reveal() calls this immediately (§3) */
+  function stopQuotes() {
+    stopped = true;
+    if (quoteTimer) { window.clearInterval(quoteTimer); quoteTimer = null; }
+    if (fadeTimer) { window.clearTimeout(fadeTimer); fadeTimer = null; }
+  }
+
+  /* ---- handshake with app.js -------------------------------------------------------- */
+  var appResolve = null;
+  var recResolve = null;
+  var appDone = false;
+  var recDone = false;
+  /* harness-only readiness flags (never read by the UI) */
+  var flags = { app: false, recovery: false, fonts: false, images: false, gate: false, revealed: false, t: {} };
+  var appP = new Promise(function (resolve) { appResolve = resolve; });
+  var recP = new Promise(function (resolve) { recResolve = resolve; });
+
+  window.__KALLIOPE_BOOT__ = {
+    signal: function (name) {
+      if (name === "app" && !appDone) { appDone = true; flags.app = true; flags.t.app = now(); if (appResolve) appResolve(); }
+      else if (name === "recovery" && !recDone) { recDone = true; flags.recovery = true; flags.t.recovery = now(); if (recResolve) recResolve(); }
+    },
+    /* harness-only handle (local probe drives the picker with a controlled RNG).
+       The UI never reads it. */
+    debug: {
+      quotes: QUOTES,
+      pick: pick,
+      current: function () { return current; },
+      released: function () { return released; },
+      flags: function () { return flags; },
+      t0: function () { return t0; },
+      paint: function () { return tPaint; },
+      end: function () { return bootEnd; }
+    }
+  };
+
+  /* ---- readiness items -------------------------------------------------------------- */
+  function settle(p, label) {
+    if (!p || typeof p.then !== "function") return Promise.resolve();
+    return p.then(function (v) { return v; }, function (e) {
+      log(label + " failed (" + ((e && e.message) || e) + ")");
+    });
+  }
+
+  function loadFirstScreenFonts() {
+    if (!(window.FontFace && doc.fonts && doc.fonts.load)) {
+      log("FontFace API unavailable; continuing with fallbacks");
+      return Promise.resolve();
+    }
+    var jobs = [];
+    try {
+      jobs.push(settle(doc.fonts.load("16px KalliopeLatin", "M"), "font Latin"));
+      jobs.push(settle(doc.fonts.load("16px KalliopeButton", "NEW"), "font Button"));
+      jobs.push(settle(doc.fonts.load("16px KalliopeCounter", "0123456789/"), "font Counter"));
+    } catch (e) { log("font load threw (" + e + ")"); }
+    return Promise.all(jobs).then(function () {
+      flags.fonts = true;
+      flags.t.fonts = now();
+    });
+  }
+
+  var MACHINE_SRC = [
+    "assets/machine/machine-rear.png",
+    "assets/machine/printhead.png",
+    "assets/machine/machine-front.png"
+  ];
+
+  /* the four front guard <img> nodes share one URL: wait once, network once */
+  function firstImage(src) {
+    var imgs = doc.images || [];
+    for (var i = 0; i < imgs.length; i++) {
+      if ((imgs[i].getAttribute("src") || "") === src) return imgs[i];
+    }
+    return null;
+  }
+
+  function waitImage(img) {
+    return new Promise(function (resolve) {
+      if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+      var done = function () {
+        img.removeEventListener("load", done);
+        img.removeEventListener("error", done);
+        resolve();
+      };
+      img.addEventListener("load", done);
+      img.addEventListener("error", done);
+      if (img.complete) done();
+    }).then(function () {
+      /* decode() is the "ready to paint without jank" signal, but it is bounded: a stalled
+         decode (background tab, throttled compositor) must never hold the mask. The bytes
+         are already loaded at this point, so passing the bound is a safe degrade. */
+      if (!img.decode) return null;
+      return new Promise(function (resolve) {
+        var done = false;
+        function fin() { if (!done) { done = true; resolve(); } }
+        img.decode().then(fin, fin);
+        window.setTimeout(fin, 1500);
+      });
+    });
+  }
+
+  function loadMachineArt() {
+    return Promise.all(MACHINE_SRC.map(function (src) {
+      var img = firstImage(src);
+      if (!img) { log("machine art not present in DOM: " + src); return Promise.resolve(); }
+      return settle(waitImage(img), "image " + src);
+    })).then(function () {
+      flags.images = true;
+      flags.t.images = now();
+    });
+  }
+
+  /* ---- reveal ----------------------------------------------------------------------- */
+  function afterPaint() {
+    /* Two rAFs give the art a committed frame, but rAF is NOT the only completion
+       criterion (order §4.2): a background tab or a stalled compositor would otherwise
+       hold the mask until the 60 s cap. The timer is the safety net, not the normal path. */
+    return new Promise(function (resolve) {
+      var done = false;
+      function finish() { if (!done) { done = true; resolve(); } }
+      if (!window.requestAnimationFrame) { finish(); return; }
+      window.requestAnimationFrame(function () {
+        window.requestAnimationFrame(finish);
+      });
+      window.setTimeout(finish, 400);
+    });
+  }
+
+  function removeMask() {
+    stopQuotes();
+    if (capTimer) { window.clearTimeout(capTimer); capTimer = null; }
+    if (bootEl && bootEl.parentNode) bootEl.parentNode.removeChild(bootEl);
+    bootEl = null;
+    bootEnd = now();
+    released = true;
+  }
+
+  function reveal() {
+    if (released) return;
+    flags.revealed = true;
+    flags.t.reveal = now();
+    /* Safety net for the emergency path (and any future early reveal): the mask is about to
+       lift, so whatever machine art has arrived must be allowed to paint. Without this the
+       60 s cap would show a machine-less app forever. Idempotent on the normal path. */
+    try {
+      if (!root.hasAttribute("data-ui-art")) root.setAttribute("data-ui-art", "ready");
+    } catch (e) {}
+    stopQuotes();
+    var base = tPaint || t0;
+    var wait = Math.max(0, 200 - (now() - base));   /* §2 minimum visible time */
+    window.setTimeout(function () {
+      if (released) return;
+      var reduced = false;
+      try {
+        reduced = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+      } catch (e) {}
+      if (!bootEl || reduced) { removeMask(); return; }
+      bootEl.className = "is-out";
+      window.setTimeout(removeMask, 160);           /* 120ms fade + margin */
+    }, wait);
+  }
+
+  /* 60s absolute cap (§4.4): never let a stuck promise lock the app behind the mask */
+  var capTimer = window.setTimeout(function () {
+    if (released) return;
+    log("60s emergency cap reached; releasing without full readiness");
+    reveal();
+  }, 60000);
+
+  function finalFit() {
+    try {
+      if (window.__KALLIOPE_APP__ && typeof window.__KALLIOPE_APP__.finalFit === "function") {
+        window.__KALLIOPE_APP__.finalFit();
+      }
+    } catch (e) { log("final FIT failed (" + e + ")"); }
+  }
+
+  function arm() {
+    Promise.all([appP, recP, loadFirstScreenFonts(), loadMachineArt()])
+      .then(function () {
+        finalFit();                       /* last FIT under the mask, before it lifts */
+        flags.gate = true;
+        flags.t.gate = now();
+        root.setAttribute("data-ui-art", "ready");
+        return afterPaint();              /* at least one committed frame with the art */
+      })
+      .then(function () { reveal(); }, function (e) { log("gate error (" + e + ")"); reveal(); });
+  }
+
+  if (doc.readyState === "loading") {
+    doc.addEventListener("DOMContentLoaded", function () {
+      try { arm(); } catch (e) { log("arm threw (" + e + ")"); reveal(); }
+    });
+  } else {
+    try { arm(); } catch (e) { log("arm threw (" + e + ")"); reveal(); }
+  }
+})();
+</script>
 
 <!-- §43 Paper + Primary Controls · §44 nine controls · §45 English text, no icons
      1.1.1: the top bar is a pure controls area again; the mark moved to the machine body. -->

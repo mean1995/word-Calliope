@@ -53,7 +53,7 @@
   var DEFAULT_NAME = "Untitled.txt";
   /* reported as <html data-build> so a stale cached script can be told apart from a bug.
      Keep in step with --build in style.css (<html data-css>). */
-  var APP_BUILD = "1.1.6.1";
+  var APP_BUILD = "1.1.6.2";
 
   /* ------------------------------------------- 1.1.6.1 provisional rulings (Y-items)
      Each open Y-item from Technical-Reply-1.1.6-R4.md §8.3 is ONE constant here, so a product
@@ -2518,6 +2518,22 @@
     window.addEventListener("pagehide", function () { Recovery.writeSync(); });
   }
 
+  /* ======================================================= 1.1.6.2 boot handshake
+
+     The loading mask in index.html is a separate, dependency-free coordinator. It needs
+     exactly two signals from here: "app" (editor built, colours and the first FIT applied)
+     and "recovery" (the first draft decision has settled - restored or not). It then calls
+     finalFit() under the mask and lifts it. Audio is deliberately NOT part of the
+     handshake (PM order 1.1.6.2 §4.3): initAudio() keeps its own architecture and timing,
+     and the CJK face stays an asynchronous warm-up, never a gate. */
+  function bootSignal(name) {
+    try {
+      if (window.__KALLIOPE_BOOT__ && typeof window.__KALLIOPE_BOOT__.signal === "function") {
+        window.__KALLIOPE_BOOT__.signal(name);
+      }
+    } catch (e) { /* the app must never depend on the mask */ }
+  }
+
   /* ============================== 11. grid capability guard (§04 / §06)
 
      The two runtime fonts are expected assets. This is a light capability check only -
@@ -2544,9 +2560,19 @@
     } catch (e) { declared = false; }
     var exact = !!(declared && latin && cjk);
     document.documentElement.setAttribute("data-grid", exact ? "exact" : "degraded");
-    if (exact) return;
+    bootSignal("grid");
+    if (exact) {
+      /* [1.1.6.2] start() disables AUTO RETURN so OFF never looks available before the grid
+         is confirmed; lift that disable only now, and only outside HELP. If HELP is open the
+         button must stay disabled, but the flag it is later restored from has to say
+         "enabled", or closing HELP would leave it disabled for good. */
+      returnDisabledByDesign = false;
+      if (!state.help) el.btnReturn.disabled = false;
+      return;
+    }
     state.autoReturn = true;
     el.btnReturn.textContent = "AUTO RETURN ON";
+    if (state.help) returnDisabledByDesign = true;
     el.btnReturn.disabled = true;      /* OFF is not offered: it cannot be honoured reliably */
   }
 
@@ -2565,6 +2591,10 @@
     /* visible build identifier (browser chrome only - not a product control) */
     document.title = "Word Καλλιόπη — " + APP_BUILD;
     bindControls();
+    /* [1.1.6.2] AUTO RETURN OFF is only safe once KalliopeLatin + KalliopeCJK are confirmed
+       (guardGrid). Until then the control stays in its native disabled state - the same
+       "no new UI" mechanism the grid guard already uses. guardGrid() re-enables it. */
+    if (el.btnReturn) el.btnReturn.disabled = true;
     initAudio();
     loadDocument("", DEFAULT_NAME, {});       /* §27 empty document, page 1, line 1 */
     applyColors();
@@ -2577,6 +2607,17 @@
     };
     window.requestAnimationFrame(refit);
     window.addEventListener("load", refit);
+
+    /* [1.1.6.2] under-mask handshake. The mask calls finalFit() right before it lifts the
+       art, so the last FIT recompute happens while the user still sees LOADING. "app" tells
+       the mask that the editor, the sheet, the colours and the first FIT are already in
+       place; the mask additionally waits for "recovery", the three first-screen fonts and
+       the three machine images, then commits one frame under itself. */
+    try {
+      window.__KALLIOPE_APP__ = window.__KALLIOPE_APP__ || {};
+      window.__KALLIOPE_APP__.finalFit = applyZoom;
+    } catch (e) {}
+    bootSignal("app");
 
     /* warm the runtime fonts first, then run the grid capability guard on the settled state */
     var warm = [];
@@ -2604,7 +2645,9 @@
         state.savedText = "";               /* recovered text is not saved anywhere */
         syncSheet(true);
       }
-    })["catch"](function () {});
+    })["catch"](function () {}).then(function () {
+      bootSignal("recovery");     /* [1.1.6.2] the mask waits for the first draft decision */
+    });
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
